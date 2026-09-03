@@ -7,7 +7,6 @@
       - Holding anything contain water and press **F** while aiming at pot will water it.
   - Each day it will consume 1 unit of water, and progress the growth by 1 day, after 15 days it will be fully growth.
   - Press **R** to fully grown tobacco pot to pluck out 2 tobacco leaf.
-- Add Tobacco leaf, which can be cut into smokable tobacco, or dried it so it can used to roll cigar.
 ## Tobacco leaf
 - Tobacco leaf could be cut by knife. Non-dried tobacco leaf can be cut into 3 green tobacco.
 - Now tobacco can be placed on drying rack to fermented. Fermented path: Green -> White -> Brown -> Black.
