@@ -16,6 +16,8 @@
 ## Cigar
 - You can put tobacco leaf on drying rack to dry it. After 6 days it will be fully dried.  
   - Main port tobacco vender also sold dried tobacco leaves.
+  - If not yet fully dried, regardless of tobacco leaf color, it will only produce green tobacco after you cut it.
+  - Dried tobacco leaf cannot be cut.
 - You can place up to 3 tobacco on to dried tobacco leaf, then press **R** to roll it into cigar
   - you don't have to fully load the leaf to roll it into cigar
 - The cigar effect depend on the tobacco you put in the leaf. It will combine all effect, including the burning length, fatigue effect and visual effect.
