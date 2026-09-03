@@ -1,3 +1,4 @@
+*Disclaimer: This mod is made with ChatGPT 5.6 Sol*
 # TobaccoPotAndCigar
 ## Tobacco pot
 - Add Tobacco Pot. It can be bought at **Sage Hill Green Tobacco Vendor** (At the other hill)
