@@ -21,9 +21,11 @@
   - Dried tobacco leaf cannot be cut.
 - You can place up to 3 tobacco on to dried tobacco leaf, then press **R** to roll it into cigar
   - you don't have to fully load the leaf to roll it into cigar
+  - Cigar will be named according to the tobacco you rolled
 - The cigar effect depend on the tobacco you put in the leaf. It will combine all effect, including the burning length, fatigue effect and visual effect.
   - so putting white and green/blue together will cancel out each others visual effect.
 - Cigar will ignore the tabacco fatigue effect limit, so repeatly drawing won't have fatigue drain diminished effect like vanilla tobacco.
   - so be careful with 3 black tobacco cigar, espicially when your sleep meter is still high.
 ## Miscellaneous
 - Increase the smoke generated from pipe.
+- Tobacco will now show their name when pointed
