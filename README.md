@@ -33,11 +33,11 @@
     - Clay Ashtray: Neverdin Tavern
     - Horn Ashtray: Oasis Tavern
   - Aestrin:
-    - Walnut Wood Ashtray: Fort Aestrin tobacco vendor
+    - Mahogany Wood Ashtray: Fort Aestrin tobacco vendor
     - Metal Ashtray: Siren Song Tavern
     - Marble Ashtray: East Wind Tavern
   - Emerald Archipelagos
-    - Paduuk Wood Ashtray: Dragon Cliffs tobacco vendor
+    - Teak Wood Ashtray: Dragon Cliffs tobacco vendor
     - Black Cemaric Ashtray: Crab Beach Tavern
     - Jade Ashtray: Pondering Peak Tavern
   - Chornos
