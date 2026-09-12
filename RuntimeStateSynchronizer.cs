@@ -20,6 +20,12 @@ namespace TobaccoPotAndCigar.Runtime
             if (driedLeaf != null)
                 driedLeaf.SyncFromSavedState();
 
+            CigarWrapperState wrapper = item.GetComponent<CigarWrapperState>();
+            if (wrapper != null) wrapper.SyncFromSavedState();
+
+            AshtrayState tray = item.GetComponent<AshtrayState>();
+            if (tray != null) tray.SyncFromSavedState();
+
             CigarRuntimeState cigar = item.GetComponent<CigarRuntimeState>();
             if (cigar != null)
             {

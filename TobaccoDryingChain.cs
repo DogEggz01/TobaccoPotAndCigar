@@ -6,9 +6,6 @@ namespace TobaccoPotAndCigar.Runtime
         {
             switch (sourcePrefabIndex)
             {
-                case RuntimeConstants.FreshTobaccoLeafPrefabIndex:
-                    resultPrefabIndex = RuntimeConstants.DriedTobaccoLeafPrefabIndex;
-                    return true;
                 case RuntimeConstants.GreenTobaccoPrefabIndex:
                     resultPrefabIndex = RuntimeConstants.WhiteTobaccoPrefabIndex;
                     return true;

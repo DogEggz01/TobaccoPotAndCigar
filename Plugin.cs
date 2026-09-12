@@ -17,7 +17,7 @@ namespace TobaccoPotAndCigar
     {
         public const string PluginGuid = "DogEggz.Cigar";
         public const string PluginName = "Tobacco pot and cigar";
-        public const string PluginVersion = "1.0.1";
+        public const string PluginVersion = "1.1.1";
 
         internal static ManualLogSource LogSource { get; private set; }
         internal static string PluginDirectory { get; private set; }
@@ -32,12 +32,21 @@ namespace TobaccoPotAndCigar
             RuntimeDiagnostics.WarningSink = message => Logger.LogWarning(message);
             RuntimeDiagnostics.ErrorSink = message => Logger.LogError(message);
 
-            CigarAssetBundle.Load(PluginDirectory);
-            harmony = new Harmony(PluginGuid);
-            harmony.PatchAll(typeof(Plugin).Assembly);
-            ShopPlacement.ResetDiagnostics();
+            try
+            {
+                CigarAssetBundle.Load(PluginDirectory);
+                harmony = new Harmony(PluginGuid);
+                harmony.PatchAll(typeof(Plugin).Assembly);
+                ShopPlacement.ResetDiagnostics();
 
-            Logger.LogInfo(PluginName + " " + PluginVersion + " loaded.");
+                Logger.LogInfo(PluginName + " " + PluginVersion + " loaded.");
+            }
+            catch (System.Exception exception)
+            {
+                // Unity exceptions may be excluded from BepInEx's disk log.
+                Logger.LogError("Cigar initialization failed: " + exception);
+                throw;
+            }
         }
 
         private void OnDestroy()

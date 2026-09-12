@@ -5,7 +5,7 @@ namespace TobaccoPotAndCigar.Runtime
 {
     public static class PrefabReplacement
     {
-        private static readonly GameObject[] CustomPrefabs = new GameObject[4];
+        private static readonly GameObject[] CustomPrefabs = new GameObject[RuntimeConstants.CustomPrefabCount];
 
         public static void RegisterCustomPrefab(int index, GameObject prefab)
         {
@@ -45,7 +45,10 @@ namespace TobaccoPotAndCigar.Runtime
                 return null;
             }
 
-            GameObject instance = UnityEngine.Object.Instantiate(
+            GameObject instance = null;
+            try
+            {
+            instance = UnityEngine.Object.Instantiate(
                 prefab,
                 position,
                 rotation);
@@ -77,6 +80,19 @@ namespace TobaccoPotAndCigar.Runtime
             RuntimeStateSynchronizer.Sync(item, true);
             saveable.RegisterToSave();
             return item;
+            }
+            catch (Exception exception)
+            {
+                if (instance != null)
+                {
+                    SaveablePrefab orphan = instance.GetComponent<SaveablePrefab>();
+                    if (orphan != null && SaveLoadManager.instance != null) orphan.Unregister();
+                    instance.SetActive(false);
+                    UnityEngine.Object.Destroy(instance);
+                }
+                RuntimeDiagnostics.Error("Could not create prefab " + prefabIndex + "; partial output removed: " + exception.Message);
+                return null;
+            }
         }
 
         public static bool ReplaceOwnedItem(
@@ -100,34 +116,56 @@ namespace TobaccoPotAndCigar.Runtime
             float replacementAmount,
             Vector3 worldPositionOffset)
         {
+            return ReplaceOwnedItem(source, resultPrefabIndex, replacementHealth, replacementAmount,
+                worldPositionOffset, source != null ? source.transform.rotation : Quaternion.identity);
+        }
+
+        public static bool ReplaceOwnedItem(ShipItem source, int resultPrefabIndex,
+            float replacementHealth, float replacementAmount, Vector3 worldPositionOffset, Quaternion rotation)
+        {
             if (!CanTransform(source))
                 return false;
 
             ShipItem replacement = SpawnOwned(
                 resultPrefabIndex,
                 source.transform.position + worldPositionOffset,
-                source.transform.rotation,
+                rotation,
                 source,
                 replacementHealth,
                 replacementAmount);
             if (replacement == null)
                 return false;
 
-            if (source.itemRigidbodyC != null)
-                source.FreezeItem();
-            else
-            {
-                Collider sourceCollider = source.GetComponent<Collider>();
-                if (sourceCollider != null)
-                    sourceCollider.enabled = false;
-            }
-            source.DestroyItem();
+            ConsumeOwned(source);
             return true;
         }
 
-        private static bool CanTransform(ShipItem source)
+        public static bool CombineOwnedItems(ShipItem target, ShipItem held, int resultPrefabIndex, Vector3 offset, Quaternion rotation)
         {
-            if (source == null || !source.sold)
+            if (target == held || !CanTransform(target) || !CanTransform(held)) return false;
+            ShipItem result = SpawnOwned(resultPrefabIndex, target.transform.position + offset,
+                rotation, target, 0, 0);
+            if (result == null) return false;
+            ConsumeOwned(held);
+            ConsumeOwned(target);
+            return true;
+        }
+
+        public static void ConsumeOwned(ShipItem source)
+        {
+            if (source == null) return;
+            if (source.held != null) source.held.DropItem();
+            source.sold = false;
+            if (source.itemRigidbodyC != null) source.FreezeItem();
+            else
+                foreach (Collider collider in source.GetComponents<Collider>()) collider.enabled = false;
+            source.gameObject.SetActive(false);
+            source.DestroyItem();
+        }
+
+        public static bool CanTransform(ShipItem source)
+        {
+            if (source == null || !source.sold || !source.gameObject.activeInHierarchy || source.nailed)
                 return false;
 
             SaveablePrefab saveable = source.GetComponent<SaveablePrefab>();
@@ -135,20 +173,16 @@ namespace TobaccoPotAndCigar.Runtime
                 return false;
             if (saveable.currentCrateId > 0)
             {
-                RuntimeDiagnostics.Error("Refusing to transform crate-contained item " +
-                                         source.name + ".");
                 return false;
             }
             if (source.itemRigidbodyC != null && source.GetCurrentInventorySlot() >= 0)
             {
-                RuntimeDiagnostics.Error("Refusing to transform inventory-held item " +
-                                         source.name + ".");
                 return false;
             }
             return true;
         }
 
-        private static GameObject ResolvePrefab(int prefabIndex)
+        public static GameObject ResolvePrefab(int prefabIndex)
         {
             PrefabsDirectory directory = PrefabsDirectory.instance;
             if (directory == null || directory.directory == null ||
