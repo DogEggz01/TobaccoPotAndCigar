@@ -5,6 +5,7 @@
 - Add Tobacco Pot. It can be bought at Sage Hill Green Tobacco Vendor (At the other hill)
 - Tobacco pot can be watered(Fresh water only), it can stored 15 unit of water in pot.
   - Rain will water tobacco pot if nothing block it from rain at top
+    - It only do this check once when pot get put down. So if there is inconsitency reput it again.
   - Not watering tobacco won't cause it to die, it will just stop growing. Running out of water is okay also.
 - Holding anything contain water and press F while aiming at pot will water it.
 - Each day it will consume 1 unit of water, and progress the growth by 1 day, after 15 days it will be fully growth.
