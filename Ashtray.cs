@@ -116,6 +116,23 @@ namespace TobaccoPotAndCigar.Runtime
     }
 }
 
+namespace TobaccoPotAndCigar.Patches
+{
+    using HarmonyLib;
+    using TobaccoPotAndCigar.Runtime;
+
+    [HarmonyPatch(typeof(ShipItemHammer), nameof(ShipItemHammer.CanNail))]
+    internal static class AshtrayHammerPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(ShipItem item, ref bool __result)
+        {
+            if (__result || item == null || !item.sold) return;
+            __result = item.GetComponent<AshtrayState>() != null;
+        }
+    }
+}
+
 
 // AshtrayState
 namespace TobaccoPotAndCigar.Runtime
