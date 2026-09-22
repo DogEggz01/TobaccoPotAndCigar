@@ -30,7 +30,7 @@
   - so be careful with 3 black tobacco cigar, espicially when your sleep meter is still high.
 - Cigar will produce ash as it burns. You can get rid of ash with ashtray.(only visual, no actual effect)
 ## Ashtray
-Add 10 ashtray to game. Each region receive 3 varient. Chronos have 1 unique one.
+Add 10 ashtray to game. Each region receive 3 varient. Chronos have 1 unique one. Ashtrays are nailable.
 
 - Al'Ankh:
   - Ash Wood Ashtray: Gold rock city tobacco vendor
