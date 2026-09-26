@@ -1,4 +1,4 @@
-// Others — grouped mod source. Existing type identities are preserved.
+// Shared plugin infrastructure — grouped mod source. Existing type identities are preserved.
 
 // Plugin
 namespace TobaccoPotAndCigar
@@ -19,7 +19,7 @@ namespace TobaccoPotAndCigar
     {
         public const string PluginGuid = "DogEggz.Cigar";
         public const string PluginName = "Tobacco pot and cigar";
-        public const string PluginVersion = "1.1.3";
+        public const string PluginVersion = "1.1.4";
 
         internal static ManualLogSource LogSource { get; private set; }
         internal static string PluginDirectory { get; private set; }
@@ -355,6 +355,18 @@ namespace TobaccoPotAndCigar.Patches
             CigarRuntimeState cigar = __instance.GetComponent<CigarRuntimeState>();
             AshtrayState tray = target.GetComponent<AshtrayState>();
             if (cigar != null && tray != null) tray.TryClearAsh(cigar);
+        }
+    }
+
+    // Preserve the nailable ashtrays added in the distributed 1.1.3 build.
+    [HarmonyPatch(typeof(ShipItemHammer), "CanNail")]
+    internal static class AshtrayHammerPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(ShipItem item, ref bool __result)
+        {
+            if (__result || item == null || !item.sold) return;
+            __result = item.GetComponent<AshtrayState>() != null;
         }
     }
 
