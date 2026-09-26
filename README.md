@@ -50,6 +50,22 @@ Add 10 ashtray to game. Each region receive 3 varient. Chronos have 1 unique one
   - pipe or cigar put on ashtray will keep burning.
 - When holding Cigar, aiming at ashtray and press R to get rid of ash.
 - Ashtray can hold 1 cigar amount of ash. Press R while holding ashtray to clean ash.
+## Cigar box
+Add 3 cigar box into game. Each region receive 1 varient. All sold in Main city's tavern. Cigar box are nailable.
+
+- Press R to open the lid. It will detect collision so it can be opened half way.
+- Press F to take out/put in cigar in slots
+- Lit cigar will be extinguished when put into cigar box
+
+## Pipe rack
+Add 4 pipe rack into games. Aestrin receive 2 pipe rack, other 1. All sold in main city's tobacco vendor. Pipe Rack can be nailed.
+
+- press F to take out/put pipe on pipe rack. Any pipe can fit.
+- Only wall mounted pipe rack will exthinguish the lit pipe, others won't.
+- Aestrin: 1 normal version, 1 wall mounted version.
+- Al'Ankk: Comes with 1 tobacco jar. Press R while aiming at the jar can open crate interface and let you put tobacco inside.
+- Emerald Archipelagos: Has a ashtray seat on top. You can put any ashtray on it. Ashtray will work normally when it's on the rack.
+
 ## Miscellaneous
 - Increase the smoke generated from pipe.
 - Tobacco will now show their name when pointed
