@@ -65,6 +65,7 @@ Add 4 pipe rack into games. Aestrin receive 2 pipe rack, other 1. All sold in ma
 - Aestrin: 1 normal version, 1 wall mounted version.
 - Al'Ankk: Comes with 1 tobacco jar. Press R while aiming at the jar can open crate interface and let you put tobacco inside.
 - Emerald Archipelagos: Has a ashtray seat on top. You can put any ashtray on it. Ashtray will work normally when it's on the rack.
+<img width="3840" height="2160" alt="20970D~1" src="https://github.com/user-attachments/assets/a2f0d008-1993-484f-b7db-ed9e5f06fb6a" />
 
 ## Miscellaneous
 - Increase the smoke generated from pipe.
