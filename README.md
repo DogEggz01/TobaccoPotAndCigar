@@ -56,6 +56,7 @@ Add 3 cigar box into game. Each region receive 1 varient. All sold in Main city'
 - Press R to open the lid. It will detect collision so it can be opened half way.
 - Press F to take out/put in cigar in slots
 - Lit cigar will be extinguished when put into cigar box
+- Cigar box can be stashed into player inventory. It will keep the cigar in the box.
 
 ## Pipe rack
 Add 4 pipe rack into games. Aestrin receive 2 pipe rack, other 1. All sold in main city's tobacco vendor. Pipe Rack can be nailed.
