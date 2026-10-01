@@ -19,7 +19,7 @@ namespace TobaccoPotAndCigar
     {
         public const string PluginGuid = "DogEggz.Cigar";
         public const string PluginName = "Tobacco pot and cigar";
-        public const string PluginVersion = "1.2.1";
+        public const string PluginVersion = "1.2.2";
 
         internal static ManualLogSource LogSource { get; private set; }
         internal static string PluginDirectory { get; private set; }
@@ -535,6 +535,252 @@ namespace TobaccoPotAndCigar.Patches
 }
 
 
+// Storage/rack ownership is shared by all seven displays; occupants remain independently saved items.
+namespace TobaccoPotAndCigar.Runtime
+{
+    using System;
+    using System.Collections;
+    using UnityEngine;
+
+    public abstract class DisplayStorageState : MonoBehaviour
+    {
+        [SerializeField] protected Transform[] seats;
+        protected SecuredDisplayItem[] contents;
+        private ShipItem item;
+        private SaveablePrefab identity;
+        private StoragePointerTarget pointerTarget;
+        private Collider[] interactionColliders;
+        public ShipItem Item { get { return item != null ? item : (item = GetComponent<ShipItem>()); } }
+        public SaveablePrefab Identity { get { return identity != null ? identity : (identity = GetComponent<SaveablePrefab>()); } }
+        public abstract int Capacity { get; }
+        public void ConfigureSeats(Transform[] value) { seats = value; }
+        private void LateUpdate()
+        {
+            // Vanilla changes only the root layer on pickup/drop. The moving lid
+            // must follow it, including after native inventory-slot withdrawal.
+            if (interactionColliders == null) interactionColliders = GetComponentsInChildren<Collider>(true);
+            foreach (var collider in interactionColliders)
+                if (collider != null) collider.gameObject.layer = gameObject.layer;
+        }
+        public void SyncContents()
+        {
+            EnsureContents();
+            foreach (var content in contents) if (content != null) content.Sync();
+        }
+        public SecuredDisplayItem GetContent(int slot)
+        { EnsureContents(); return slot >= 0 && slot < contents.Length ? contents[slot] : null; }
+        protected void EnsureContents() { if (contents == null) contents = new SecuredDisplayItem[Capacity]; }
+        public virtual bool CanAccess(int slot) { return slot >= 0 && slot < Capacity; }
+        public virtual Transform Seat(int slot, ShipItem held) { return seats[slot]; }
+        public abstract bool Accepts(ShipItem held, int slot);
+        protected virtual bool ExtinguishOnSeat { get { return false; } }
+        public bool Available
+        {
+            get { return Item.sold && gameObject.activeInHierarchy && !Item.held && Identity.currentCrateId == 0 &&
+                Item.itemRigidbodyC != null && Item.itemRigidbodyC.GetCurrentInventorySlot() == null; }
+        }
+        public virtual int NearestEmpty(ShipItem held, Vector3 point)
+        {
+            EnsureContents(); int best = -1; float distance = float.MaxValue;
+            for (int slot = 0; slot < Capacity; slot++)
+            {
+                if (contents[slot] != null || !CanAccess(slot) || !Accepts(held, slot)) continue;
+                Transform pose = Seat(slot, held);
+                float d = (pose.position - point).sqrMagnitude;
+                if (d < distance) { best = slot; distance = d; }
+            }
+            return best;
+        }
+        public bool TrySeat(ShipItem held, int slot, bool restoring = false)
+        {
+            EnsureContents();
+            if (held == null || held == Item || slot < 0 || slot >= Capacity || contents[slot] != null ||
+                !Accepts(held, slot) || held.itemRigidbodyC == null || !held.sold || held.nailed ||
+                (!restoring && (!Available || !CanAccess(slot)))) return false;
+            var existing = held.GetComponent<SecuredDisplayItem>();
+            if (existing != null && existing.Owner != null) return false;
+            if (held.held != null) held.held.DropItem();
+            var cigar = held.GetComponent<CigarRuntimeState>(); if (cigar != null) cigar.LeaveRest();
+            var pipe = held.GetComponent<RestingPipeState>(); if (pipe != null) pipe.LeaveRest();
+            var state = existing != null ? existing : held.gameObject.AddComponent<SecuredDisplayItem>();
+            contents[slot] = state; state.Attach(this, slot);
+            if (!restoring && ExtinguishOnSeat) StoragePipeHeat.Extinguish(held as ShipItemPipe);
+            return true;
+        }
+        public bool TryPlace(ShipItem held, Vector3 point)
+        { int slot = NearestEmpty(held, point); return slot >= 0 && TrySeat(held, slot); }
+        internal void Release(SecuredDisplayItem state)
+        { EnsureContents(); for (int i = 0; i < contents.Length; i++) if (contents[i] == state) contents[i] = null; }
+        public virtual void Pose(int slot, ShipItem held, out Vector3 position, out Quaternion rotation)
+        { Transform socket = Seat(slot, held); position = socket.position; rotation = socket.rotation; }
+        public StoragePointerTarget Target(int slot, Vector3 point, GoPointer pointer)
+        {
+            if (pointerTarget == null)
+            {
+                var host = new GameObject("Storage interaction"); host.transform.SetParent(transform, false);
+                host.AddComponent<MeshRenderer>().enabled = false;
+                pointerTarget = host.AddComponent<StoragePointerTarget>(); pointerTarget.Owner = this;
+            }
+            pointerTarget.Slot = slot; pointerTarget.Point = point; pointerTarget.Refresh(pointer);
+            return pointerTarget;
+        }
+        protected virtual void OnDestroy()
+        {
+            if (contents == null) return;
+            for (int i = 0; i < contents.Length; i++) if (contents[i] != null) contents[i].Detach(true);
+        }
+    }
+
+    [DefaultExecutionOrder(1000)]
+    public sealed class SecuredDisplayItem : MonoBehaviour
+    {
+        public DisplayStorageState Owner { get; private set; }
+        public int Slot { get; private set; }
+        private ShipItem item;
+        private SaveablePrefab identity;
+        private Transform[] layers;
+        private int lastLayer = -1;
+        private int savedOwner;
+        private bool started;
+        private bool inventoryHidden;
+        public ShipItem Item { get { return item != null ? item : (item = GetComponent<ShipItem>()); } }
+        private void Start() { started = true; if (savedOwner != 0) StartCoroutine(Restore()); }
+        public void Attach(DisplayStorageState owner, int slot)
+        {
+            Owner = owner; Slot = slot; savedOwner = 0;
+            if (layers == null) layers = GetComponentsInChildren<Transform>(true);
+            Item.itemRigidbodyC.attached = true; Item.itemRigidbodyC.inStove = true; Item.itemRigidbodyC.disableCol = true;
+            Item.ToggleDisallowDisembarking(true); Sync();
+        }
+        public void Detach(bool drop = false)
+        {
+            savedOwner = 0;
+            if (Owner == null) return;
+            DisplayStorageState owner = Owner; Owner = null; owner.Release(this);
+            Item.ToggleDisallowDisembarking(false);
+            SetLayer(Item.held != null ? 2 : 0); transform.localScale = Vector3.one;
+            if (Item.itemRigidbodyC == null) return;
+            Item.itemRigidbodyC.ExitBox(); Item.itemRigidbodyC.attached = false; Item.itemRigidbodyC.inStove = false; Item.itemRigidbodyC.disableCol = false;
+            if (inventoryHidden && Item.itemRigidbodyC.GetCurrentInventorySlot() == null) Item.GetComponent<Collider>().enabled = true;
+            inventoryHidden = false;
+            Item.ResetRigidbody();
+            if (Item.currentActualBoat != null && Item.currentWalkCol != null) Item.itemRigidbodyC.ForceRigidbodyToWalkCol();
+            var body = Item.itemRigidbodyC.GetBody();
+            if (body != null && drop) { body.isKinematic = false; body.WakeUp(); }
+        }
+        private void SetLayer(int layer)
+        { if (lastLayer == layer) return; if (layers == null) layers = GetComponentsInChildren<Transform>(true); foreach (Transform t in layers) if (t != null) t.gameObject.layer = layer; lastLayer = layer; }
+        public void Sync()
+        {
+            if (Owner == null || Item.itemRigidbodyC == null) return;
+            if (Item.held != null) { Detach(); return; }
+            var ownerItem = Owner.Item;
+            Item.currentActualBoat = ownerItem.currentActualBoat; Item.currentWalkCol = ownerItem.currentWalkCol;
+            if (identity == null) identity = GetComponent<SaveablePrefab>();
+            identity.SetParentObject(Owner.Identity.GetParentObject());
+            Vector3 position; Quaternion rotation; Owner.Pose(Slot, Item, out position, out rotation);
+            transform.SetPositionAndRotation(position, rotation); transform.localScale = Owner.transform.lossyScale;
+            Item.itemRigidbodyC.EnterBox(Owner.transform, Owner.transform.InverseTransformPoint(position), Quaternion.Inverse(Owner.transform.rotation) * rotation);
+            var body = Item.itemRigidbodyC.GetBody(); if (body != null) { body.isKinematic = true; body.position = position; body.rotation = rotation; }
+            if (Item.currentActualBoat != null && Item.currentWalkCol != null) Item.itemRigidbodyC.ForceRigidbodyToWalkCol();
+            bool inInventory = ownerItem.itemRigidbodyC.GetCurrentInventorySlot() != null;
+            if (inventoryHidden != inInventory) { Item.GetComponent<Collider>().enabled = !inInventory; inventoryHidden = inInventory; }
+            SetLayer(ownerItem.gameObject.layer == 26 ? 26 : inInventory ? 5 : ownerItem.held != null ? 2 : 0);
+        }
+        private void LateUpdate() { Sync(); }
+        private void OnDestroy() { if (Owner != null) Owner.Release(this); }
+        public void WriteSave(SavePrefabData data)
+        {
+            int id = Owner != null ? Owner.Identity.instanceId : savedOwner;
+            if (id == 0) return;
+            Sync(); data.extraValue1 = id & 65535; data.extraValue2 = (id >> 16) & 32767; data.extraValue3 = Slot; data.extraValue4 = 130;
+        }
+        public void ReadSave(SavePrefabData data)
+        {
+            if (data.extraValue4 != 130 || data.inventorySlot >= 0 || data.crateId != 0 ||
+                data.extraValue1 < 0 || data.extraValue1 > 65535 || data.extraValue1 % 1 != 0 ||
+                data.extraValue2 < 0 || data.extraValue2 > 32767 || data.extraValue2 % 1 != 0 ||
+                data.extraValue3 < 0 || data.extraValue3 >= 10 || data.extraValue3 % 1 != 0) return;
+            savedOwner = (int)data.extraValue1 | ((int)data.extraValue2 << 16); Slot = (int)data.extraValue3;
+            if (started && savedOwner != 0) StartCoroutine(Restore());
+        }
+        private IEnumerator Restore()
+        {
+            while (GameState.currentlyLoading) yield return null;
+            for (int frame = 0; frame < 180 && savedOwner != 0; frame++)
+            {
+                if (SaveLoadManager.instance != null && Item.itemRigidbodyC != null)
+                    foreach (SaveablePrefab saved in SaveLoadManager.instance.GetCurrentPrefabs())
+                        if (saved != null && saved.instanceId == savedOwner)
+                        {
+                            var owner = saved.GetComponent<DisplayStorageState>();
+                            if (owner != null && owner.TrySeat(Item, Slot, true)) yield break;
+                        }
+                yield return null;
+            }
+            savedOwner = 0;
+        }
+    }
+
+    public sealed class StoragePointerTarget : GoPointerButton
+    {
+        public DisplayStorageState Owner;
+        public int Slot;
+        public Vector3 Point;
+        private int withdrawalFrame = -1;
+        private ShipItem lastHovered;
+        public override void Start() { } // No invisible outline renderer or extra mesh.
+        private void LateUpdate() { } // Native button outlines require a visible mesh.
+        public void Refresh(GoPointer pointer)
+        {
+            var occupant = Owner.GetContent(Slot);
+            var hovered = occupant != null ? occupant.Item : null;
+            if (lastHovered != null && lastHovered != hovered) lastHovered.ForceUnlook();
+            lastHovered = hovered;
+            transform.position = Point;
+            lookText = occupant != null ? occupant.Item.name : string.Empty;
+            description = occupant != null ? occupant.Item.description : string.Empty;
+            if (occupant != null) occupant.Item.Look(pointer);
+        }
+        public override void OnActivate(GoPointer pointer)
+        {
+            if (pointer.GetHeldItem() != null) return;
+            if (Slot == -2 && Owner is PipeRackState)
+            { if (!Owner.Item.nailed) { withdrawalFrame = Time.frameCount; pointer.PickUpItem(Owner.Item); } return; }
+            if (!Owner.CanAccess(Slot)) return;
+            var occupant = Owner.GetContent(Slot);
+            if (occupant != null && !occupant.Item.nailed) { withdrawalFrame = Time.frameCount; pointer.PickUpItem(occupant.Item); }
+        }
+        public override bool OnItemClick(PickupableItem held)
+        { if (withdrawalFrame == Time.frameCount) return false; var item = held != null ? held.GetComponent<ShipItem>() : null; if (item != null) Owner.TryPlace(item, Point); return false; }
+        public override void OnAltActivate()
+        {
+            var box = Owner as CigarBoxState; if (box != null) box.ToggleLid();
+            var rack = Owner as PipeRackState; if (rack != null && Slot == -2) rack.OpenJar();
+        }
+    }
+
+    internal static class StoragePipeHeat
+    {
+        private static readonly System.Reflection.FieldInfo Heat = typeof(ShipItemPipe).GetField("currentHeat", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        private static readonly System.Reflection.FieldInfo Inhaling = typeof(ShipItemPipe).GetField("inhaling", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        private static readonly System.Reflection.FieldInfo Drinking = typeof(ShipItemPipe).GetField("drinking", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        public static void Extinguish(ShipItemPipe pipe)
+        {
+            if (pipe == null) return;
+            Heat.SetValue(pipe, 0f);
+            // Wall-rack pipes only lose heat. Native UpdateParticles toggles
+            // emission; it never restarts a stopped particle system.
+            var cigar = pipe.GetComponent<CigarRuntimeState>();
+            if (cigar == null) return;
+            Inhaling.SetValue(pipe, false); Drinking.SetValue(pipe, false);
+            foreach (var particles in pipe.GetComponentsInChildren<ParticleSystem>(true)) particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            cigar.SyncVisuals(true, 0, false);
+        }
+    }
+}
+
+
 // Scoped storage interactions preserve native controls and all unrelated pointer/UI behavior.
 namespace TobaccoPotAndCigar.Patches
 {
@@ -685,101 +931,6 @@ namespace TobaccoPotAndCigar.Patches
             var mesh = held.GetComponent<MeshFilter>(); if (mesh == null || mesh.sharedMesh == null) return;
             Vector3 position; Quaternion rotation; target.Owner.Pose(slot, held, out position, out rotation);
             __instance.GetTargeter().DisplayTargeter(position, rotation, mesh.sharedMesh);
-        }
-    }
-
-    [HarmonyPatch(typeof(CrateInventoryUI), "GetCrateDimensions")]
-    internal static class RackJarDimensionsPatch
-    {
-        internal static bool IsJar(CrateInventory crate) { var rack = crate != null ? crate.GetComponent<PipeRackState>() : null; return rack != null && rack.HasJar; }
-        [HarmonyPrefix]
-        private static bool Prefix(CrateInventoryUI __instance, ref Vector2 __result)
-        { if (!IsJar(__instance.currentCrate)) return true; __result = new Vector2(4, 4); return false; }
-    }
-
-    [HarmonyPatch(typeof(CrateInventory), "LateUpdate")]
-    internal static class RackJarContentsPatch
-    {
-        [HarmonyPrefix]
-        private static bool Prefix(CrateInventory __instance)
-        {
-            if (!RackJarDimensionsPatch.IsJar(__instance)) return true;
-            var owner = __instance.GetComponent<ShipItem>(); var save = owner.GetComponent<SaveablePrefab>();
-            bool showing = CrateInventoryUI.instance != null && CrateInventoryUI.instance.showingUI && CrateInventoryUI.instance.currentCrate == __instance;
-            foreach (var item in __instance.containedItems)
-            {
-                if (item == null || item.itemRigidbodyC == null) continue;
-                item.currentActualBoat = owner.currentActualBoat; item.currentWalkCol = owner.currentWalkCol;
-                item.GetComponent<SaveablePrefab>().SetParentObject(save.GetParentObject());
-                if (!showing) item.transform.SetPositionAndRotation(owner.transform.position, owner.transform.rotation);
-                if (item.currentActualBoat != null && item.currentWalkCol != null) item.itemRigidbodyC.ForceRigidbodyToWalkCol();
-            }
-            return false;
-        }
-    }
-
-    [HarmonyPatch(typeof(CrateInventoryUI), "RefreshButtons")]
-    internal static class RackJarLayoutPatch
-    {
-        private static readonly AccessTools.FieldRef<CrateInventoryUI, Transform> Tracker = AccessTools.FieldRefAccess<CrateInventoryUI, Transform>("localPosTracker");
-        private static CrateInventoryUI scaledUI;
-        private static Vector3 originalScale;
-        [HarmonyPostfix]
-        private static void Postfix(CrateInventoryUI __instance)
-        {
-            if (!RackJarDimensionsPatch.IsJar(__instance.currentCrate)) { Restore(__instance); return; }
-            if (scaledUI != __instance) { scaledUI = __instance; originalScale = __instance.transform.localScale; }
-            __instance.transform.localScale = originalScale * .5f;
-            for (int i = 0; i < __instance.buttons.Length; i++)
-            {
-                __instance.buttons[i].gameObject.SetActive(i < 16);
-                if (i < 16) __instance.buttons[i].transform.localPosition = new Vector3(.75f - (i % 4) * .5f, -.75f + (i / 4) * .5f, 0);
-            }
-            // Items are positioned in world space by CrateInventoryButton. Their normal
-            // inventoryScale * .33 display scale is deliberately left untouched.
-            if (__instance.showingUI) Position(__instance);
-        }
-        internal static void Restore(CrateInventoryUI ui)
-        { if (scaledUI == ui) { ui.transform.localScale = originalScale; scaledUI = null; } }
-        internal static void Position(CrateInventoryUI ui)
-        {
-            if (!RackJarDimensionsPatch.IsJar(ui.currentCrate) || Camera.main == null) return;
-            Transform camera = Camera.main.transform;
-            Bounds rack = ui.currentCrate.GetComponent<Collider>().bounds;
-            Vector3 direction = camera.forward;
-            float extent = Vector3.Dot(rack.extents, new Vector3(Mathf.Abs(direction.x), Mathf.Abs(direction.y), Mathf.Abs(direction.z)));
-            float nearFace = Vector3.Dot(rack.center - camera.position, direction) - extent;
-            float distance = Mathf.Clamp(nearFace - .12f, .30f, .65f);
-            // Vanilla opens at one metre. Compensate the UI geometry for its new
-            // distance to preserve half the apparent dimensions, not a magnified
-            // half-size board. Native tobacco world/display scale stays untouched.
-            ui.transform.localScale = originalScale * (.5f * distance);
-            ui.transform.position = camera.position + direction * distance + camera.up * (.07f * distance);
-            ui.transform.LookAt(camera.position);
-            var tracker = Tracker(ui);
-            tracker.SetPositionAndRotation(ui.transform.position, ui.transform.rotation);
-        }
-    }
-    [HarmonyPatch(typeof(CrateInventoryUI), "ShowInventory")]
-    internal static class RackJarPositionPatch
-    {
-        [HarmonyPostfix] private static void Postfix(CrateInventoryUI __instance) { if (__instance.showingUI) RackJarLayoutPatch.Position(__instance); }
-    }
-    [HarmonyPatch(typeof(CrateInventoryUI), "HideInventory")]
-    internal static class RackJarClosePatch
-    {
-        [HarmonyPostfix] private static void Postfix(CrateInventoryUI __instance) { RackJarLayoutPatch.Restore(__instance); }
-    }
-    [HarmonyPatch(typeof(CrateInventoryButton), "OnActivate")]
-    internal static class RackJarInsertPatch
-    {
-        [HarmonyPrefix]
-        private static bool Prefix(GoPointer activatingPointer)
-        {
-            if (CrateInventoryUI.instance == null || !RackJarDimensionsPatch.IsJar(CrateInventoryUI.instance.currentCrate)) return true;
-            var held = activatingPointer.GetHeldItem() as ShipItem;
-            return held == null || (CrateInventoryUI.instance.currentCrate.containedItems.Count < 16 &&
-                (held is ShipItemTobacco || held.GetComponent<DriedTobaccoLeafState>() != null));
         }
     }
 }

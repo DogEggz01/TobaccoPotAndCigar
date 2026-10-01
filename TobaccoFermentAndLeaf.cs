@@ -111,7 +111,7 @@ namespace TobaccoPotAndCigar.Runtime
 
         public void Apply(float progress)
         {
-            if (filter == null || filter.sharedMesh == null)
+            if (filter == null || filter.sharedMesh == null || !filter.gameObject.activeSelf)
                 return;
             if (instance == null)
             {
@@ -531,16 +531,7 @@ public sealed class FreshTobaccoLeafVisual : MonoBehaviour
             }
 
             displayedHours = clampedHours;
-            float curlProgress = EvaluateCurlProgress(clampedHours);
-            if (curlMeshes != null)
-                foreach (LeafCurlMesh mesh in curlMeshes)
-                    if (mesh != null) mesh.Apply(curlProgress);
-            ApplyColor(EvaluateDryingColor(
-                clampedHours,
-                freshColor,
-                whiteTobaccoColor,
-                driedLeafColor));
-
+            // Hide veins first so their curl meshes are skipped.
             int hiddenVeins = GetHiddenVeinCount(
                 clampedHours,
                 LateralVeinCount);
@@ -551,6 +542,16 @@ public sealed class FreshTobaccoLeafVisual : MonoBehaviour
             }
             if (centralMidrib != null)
                 centralMidrib.SetActive(true);
+
+            float curlProgress = EvaluateCurlProgress(clampedHours);
+            if (curlMeshes != null)
+                foreach (LeafCurlMesh mesh in curlMeshes)
+                    if (mesh != null) mesh.Apply(curlProgress);
+            ApplyColor(EvaluateDryingColor(
+                clampedHours,
+                freshColor,
+                whiteTobaccoColor,
+                driedLeafColor));
         }
 
         public static Color EvaluateDryingColor(
@@ -711,6 +712,10 @@ public sealed class RackOnlyDrying : MonoBehaviour
             new HashSet<DryingRackCol>();
         private ShipItem item;
         private Coroutine dryingRoutine;
+        private FreshTobaccoLeafState freshState;
+        private bool leafKindKnown;
+        private float nextVisualTime;
+        private int visualDay = -1;
 
         public int ResultPrefabIndex
         {
@@ -725,6 +730,8 @@ public sealed class RackOnlyDrying : MonoBehaviour
         private void Awake()
         {
             item = GetComponent<ShipItem>();
+            freshState = GetComponent<FreshTobaccoLeafState>();
+            leafKindKnown = true;
         }
 
         private void Start()
@@ -768,12 +775,12 @@ public sealed class RackOnlyDrying : MonoBehaviour
                 item = GetComponent<ShipItem>();
             if (item == null)
                 return;
+            freshState = item.GetComponent<FreshTobaccoLeafState>();
+            leafKindKnown = true;
             item.health = Mathf.Clamp(
                 item.health,
                 0f,
                 GetRequiredGameHours());
-            FreshTobaccoLeafState freshState =
-                item.GetComponent<FreshTobaccoLeafState>();
             if (freshState != null)
             {
                 freshState.SyncDryingVisual();
@@ -805,16 +812,24 @@ public sealed class RackOnlyDrying : MonoBehaviour
             {
                 Sun clock = Sun.sun;
                 if (item != null && item.sold && clock != null &&
-                    !Sun.SunPaused() && (resultPrefabIndex > 0 || item.GetComponent<FreshTobaccoLeafState>() != null))
+                    !Sun.SunPaused() && (resultPrefabIndex > 0 || freshState != null))
                 {
                     float requiredGameHours = GetRequiredGameHours();
                     item.health = Mathf.Min(
                         requiredGameHours,
                         item.health + Time.deltaTime * clock.timescale);
-                    FreshTobaccoLeafState freshState =
-                        item.GetComponent<FreshTobaccoLeafState>();
                     if (freshState != null)
-                        freshState.SyncDryingVisual();
+                    {
+                        // Rebuild the leaf mesh at most every 0.1 s, plus each new day and on completion.
+                        int day = Mathf.FloorToInt(item.health / FreshTobaccoLeafVisual.GameHoursPerDay);
+                        if (Time.unscaledTime >= nextVisualTime || day != visualDay ||
+                            item.health >= requiredGameHours)
+                        {
+                            freshState.SyncDryingVisual();
+                            nextVisualTime = Time.unscaledTime + 0.1f;
+                            visualDay = day;
+                        }
+                    }
                     if (item.health >= requiredGameHours)
                     {
                         if (freshState != null)
@@ -949,8 +964,12 @@ public sealed class RackOnlyDrying : MonoBehaviour
 
         private float GetRequiredGameHours()
         {
-            return item != null &&
-                   item.GetComponent<FreshTobaccoLeafState>() != null
+            if (!leafKindKnown && item != null)
+            {
+                freshState = item.GetComponent<FreshTobaccoLeafState>();
+                leafKindKnown = true;
+            }
+            return freshState != null
                 ? FreshLeafRequiredGameHours
                 : LooseTobaccoRequiredGameHours;
         }
@@ -991,6 +1010,10 @@ public sealed class RackOnlyDrying : MonoBehaviour
                 return;
             StopCoroutine(dryingRoutine);
             dryingRoutine = null;
+            // Show the exact progress the throttled updates may have skipped.
+            if (freshState != null)
+                freshState.SyncDryingVisual();
+            nextVisualTime = 0f;
         }
     }
 }
