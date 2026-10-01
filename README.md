@@ -71,3 +71,4 @@ Add 4 pipe rack into games. Aestrin receive 2 pipe rack, other 1. All sold in ma
 ## Miscellaneous
 - Increase the smoke generated from pipe.
 - Tobacco will now show their name when pointed
+- Pipe and Cigar need to be held to be smoked
