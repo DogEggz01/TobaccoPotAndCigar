@@ -114,6 +114,24 @@ namespace TobaccoPotAndCigar.Runtime
 }
 
 
+// RackJarDisplay
+namespace TobaccoPotAndCigar.Runtime
+{
+    using UnityEngine;
+
+    // Sailwind 0.39.1 doubled loose tobacco's inventoryScale (1 -> 2). Native crates show
+    // contents at inventoryScale * .33, which overlaps neighbouring slots in the half-size
+    // jar grid, so jar contents keep the pre-0.39.1 display size.
+    public static class RackJarDisplay
+    {
+        public const float NativeCrateScale = .33f;
+        public const float MaxInventoryScale = 1f;
+        public static float ItemScale(float inventoryScale)
+        { return NativeCrateScale * Mathf.Min(inventoryScale, MaxInventoryScale); }
+    }
+}
+
+
 // The Al'Ankh rack's tobacco jar reuses the native crate interface at a 4x4 size.
 namespace TobaccoPotAndCigar.Patches
 {
@@ -168,8 +186,8 @@ namespace TobaccoPotAndCigar.Patches
                 __instance.buttons[i].gameObject.SetActive(i < 16);
                 if (i < 16) __instance.buttons[i].transform.localPosition = new Vector3(.75f - (i % 4) * .5f, -.75f + (i / 4) * .5f, 0);
             }
-            // Items are positioned in world space by CrateInventoryButton. Their normal
-            // inventoryScale * .33 display scale is deliberately left untouched.
+            // Items are positioned in world space by CrateInventoryButton. Their display
+            // scale is set once on insertion (RackJarItemScalePatch), not by this layout.
             if (__instance.showingUI) Position(__instance);
         }
         internal static void Restore(CrateInventoryUI ui)
@@ -185,7 +203,7 @@ namespace TobaccoPotAndCigar.Patches
             float distance = Mathf.Clamp(nearFace - .12f, .30f, .65f);
             // Vanilla opens at one metre. Compensate the UI geometry for its new
             // distance to preserve half the apparent dimensions, not a magnified
-            // half-size board. Native tobacco world/display scale stays untouched.
+            // half-size board. Item display scale is fixed on insertion, not here.
             ui.transform.localScale = originalScale * (.5f * distance);
             ui.transform.position = camera.position + direction * distance + camera.up * (.07f * distance);
             ui.transform.LookAt(camera.position);
@@ -213,6 +231,19 @@ namespace TobaccoPotAndCigar.Patches
             var held = activatingPointer.GetHeldItem() as ShipItem;
             return held == null || (CrateInventoryUI.instance.currentCrate.containedItems.Count < 16 &&
                 (held is ShipItemTobacco || held.GetComponent<DriedTobaccoLeafState>() != null));
+        }
+    }
+    // Native InsertItem sets the stored display scale for every route into a crate
+    // (jar slot, save load, spawning). Only the jar's contents are capped; withdrawal
+    // still restores normal world size natively.
+    [HarmonyPatch(typeof(CrateInventory), "InsertItem")]
+    internal static class RackJarItemScalePatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(CrateInventory __instance, ShipItem item)
+        {
+            if (item == null || !RackJarDimensionsPatch.IsJar(__instance)) return;
+            item.transform.localScale = Vector3.one * RackJarDisplay.ItemScale(item.inventoryScale);
         }
     }
 }
