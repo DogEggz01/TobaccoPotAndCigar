@@ -19,7 +19,7 @@ namespace TobaccoPotAndCigar
     {
         public const string PluginGuid = "DogEggz.Cigar";
         public const string PluginName = "Tobacco pot and cigar";
-        public const string PluginVersion = "1.2.3";
+        public const string PluginVersion = "1.2.4";
 
         internal static ManualLogSource LogSource { get; private set; }
         internal static string PluginDirectory { get; private set; }
@@ -39,6 +39,7 @@ namespace TobaccoPotAndCigar
                 CigarAssetBundle.Load(PluginDirectory);
                 harmony = new Harmony(PluginGuid);
                 harmony.PatchAll(typeof(Plugin).Assembly);
+                Compatibility.RadSingleClickSmoking.Install(harmony);
                 ShopPlacement.ResetDiagnostics();
 
                 Logger.LogInfo(PluginName + " " + PluginVersion + " loaded.");
@@ -2171,3 +2172,124 @@ public static class RuntimeStateSynchronizer
     }
 }
 
+
+// Rad owns the click toggle; only its tobacco-presence reads need cigar support.
+namespace TobaccoPotAndCigar.Compatibility
+{
+    using System;
+    using System.Collections.Generic;
+    using System.Reflection;
+    using System.Reflection.Emit;
+    using BepInEx.Bootstrap;
+    using HarmonyLib;
+    using TobaccoPotAndCigar.Runtime;
+
+    internal static class RadSingleClickSmoking
+    {
+        private static readonly FieldInfo Amount = AccessTools.Field(typeof(ShipItem), "amount");
+        private static readonly MethodInfo ReadAmount = AccessTools.Method(
+            typeof(RadSingleClickSmoking), nameof(GetRadSmokingAmount));
+        private static bool warned;
+        private static string detectedVersion;
+
+        internal static void Install(Harmony harmony)
+        {
+            BepInEx.PluginInfo rad;
+            if (!Chainloader.PluginInfos.TryGetValue(RadRefinementsCompatibility.PluginGuid, out rad))
+                return;
+            warned = false;
+            detectedVersion = rad.Metadata.Version.ToString();
+            try
+            {
+                Type handler = rad.Instance.GetType().Assembly.GetType(
+                    "RadRefinements.PipePatches+ShipItemPatches", false);
+                MethodInfo factory = handler == null ? null : AccessTools.Method(
+                    handler, "MovePipe", new[] { typeof(ShipItemPipe) });
+                MethodInfo target = factory == null ? null : AccessTools.EnumeratorMoveNext(factory);
+                if (target == null)
+                {
+                    WarnOnce("the expected smoking iterator was not found");
+                    return;
+                }
+                harmony.Patch(target, transpiler: new HarmonyMethod(
+                    typeof(RadSingleClickSmoking), nameof(Transpiler)));
+                if (!warned)
+                    Plugin.LogSource?.LogInfo("RadRefinements " + detectedVersion +
+                        " single-click cigar smoking compatibility enabled.");
+            }
+            catch (Exception exception)
+            {
+                // Optional third-party integration must not prevent cigar initialization.
+                WarnOnce("patch installation failed: " + exception);
+            }
+        }
+
+        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            var original = new List<CodeInstruction>(instructions);
+            if (!HasExpectedChecks(original))
+            {
+                WarnOnce("the smoking iterator IL changed; no amount reads were replaced");
+                return original;
+            }
+            var result = new List<CodeInstruction>(original.Count);
+            foreach (CodeInstruction instruction in original)
+            {
+                var copy = new CodeInstruction(instruction);
+                if (copy.LoadsField(Amount))
+                {
+                    copy.opcode = OpCodes.Call;
+                    copy.operand = ReadAmount;
+                }
+                result.Add(copy);
+            }
+            return result;
+        }
+
+        private static bool HasExpectedChecks(List<CodeInstruction> instructions)
+        {
+            int positive = 0, empty = 0, reads = 0;
+            for (int i = 0; i < instructions.Count; i++)
+            {
+                if (!instructions[i].LoadsField(Amount))
+                    continue;
+                reads++;
+                if (i + 2 >= instructions.Count ||
+                    instructions[i + 1].opcode != OpCodes.Ldc_R4 ||
+                    !Equals(instructions[i + 1].operand, 0f))
+                    return false;
+                if (instructions[i + 2].opcode == OpCodes.Cgt)
+                    positive++;
+                else if (i + 4 < instructions.Count &&
+                         instructions[i + 2].opcode == OpCodes.Cgt_Un &&
+                         instructions[i + 3].opcode == OpCodes.Ldc_I4_0 &&
+                         instructions[i + 4].opcode == OpCodes.Ceq)
+                    empty++;
+                else
+                    return false;
+            }
+            return reads == 2 && positive == 1 && empty == 1;
+        }
+
+        private static float GetRadSmokingAmount(ShipItemPipe pipe)
+        {
+            if (pipe.amount < 0f && pipe.health > 0f)
+            {
+                CigarRuntimeState cigar = pipe.GetComponent<CigarRuntimeState>();
+                TobaccoRecipe recipe;
+                if (cigar != null && cigar.TryGetRecipe(out recipe))
+                    return 1f;
+            }
+            return pipe.amount;
+        }
+
+        private static void WarnOnce(string reason)
+        {
+            if (warned)
+                return;
+            warned = true;
+            Plugin.LogSource?.LogWarning("RadRefinements " + detectedVersion +
+                " single-click cigar smoking compatibility unavailable: " + reason + ".");
+        }
+    }
+}
