@@ -315,7 +315,7 @@ internal static class CigarEffectService
             {
                 var bloom = vanilla.postProcessing.bloom.settings;
                 bloom.bloom.intensity = Mathf.Lerp(
-                    0.66f,
+                    0.66f * Settings.bloomIntensity,
                     0f,
                     Mathf.Clamp01(black / 100f));
                 vanilla.postProcessing.bloom.settings = bloom;
