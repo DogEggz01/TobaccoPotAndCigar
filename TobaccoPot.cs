@@ -1,4 +1,4 @@
-// TobaccoPot — grouped mod source. Existing type identities are preserved.
+// Tobacco pot: rain patches, growth and rain-water numbers, the pot's state and the plant's visual.
 
 // PotRainPatches
 namespace TobaccoPotAndCigar.Patches
@@ -209,17 +209,6 @@ public sealed class TobaccoPlantPotState : MonoBehaviour
         public float GrowthGameHours
         {
             get { return item == null ? 0f : Mathf.Clamp(item.amount, 0f, GrowthMath.RequiredGameHours); }
-        }
-
-        public int CompletedGrowthDays
-        {
-            get
-            {
-                return Mathf.Clamp(
-                    Mathf.FloorToInt(GrowthGameHours / GrowthMath.GameHoursPerDay),
-                    0,
-                    GrowthMath.RequiredDays);
-            }
         }
 
         public bool FullyGrown

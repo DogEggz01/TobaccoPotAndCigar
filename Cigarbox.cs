@@ -1,4 +1,4 @@
-// Cigar box — grouped mod source. Existing type identities are preserved.
+// Cigar box: its state, lid and seats.
 
 // Regional boxes use the authored hinge and slots; contents keep their native identities.
 namespace TobaccoPotAndCigar.Runtime

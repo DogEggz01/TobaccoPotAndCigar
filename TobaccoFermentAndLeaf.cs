@@ -1,4 +1,4 @@
-// TobaccoFermentAndLeaf — grouped mod source. Existing type identities are preserved.
+// Tobacco leaves: knife patches, the fresh and dried leaf states and visuals, drying on the rack, and the migration of saved ID 613 leaves.
 
 // KnifePatches
 namespace TobaccoPotAndCigar.Patches

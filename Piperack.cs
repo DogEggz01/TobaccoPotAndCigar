@@ -1,4 +1,4 @@
-// Pipe rack — grouped mod source. Existing type identities are preserved.
+// Pipe rack: its state, and the tobacco jar it carries with the patches on the jar's crate panel.
 
 // PipeRackState
 namespace TobaccoPotAndCigar.Runtime
@@ -27,8 +27,6 @@ namespace TobaccoPotAndCigar.Runtime
         { return slot == 3 ? ashtraySeat != null && held.GetComponent<AshtrayState>() != null : RestingPipeState.NativePipeSlot(held as ShipItemPipe) >= 0; }
         public override Transform Seat(int slot, ShipItem held)
         { return slot == 3 ? ashtraySeat : seats[slot * 3 + RestingPipeState.NativePipeSlot(held as ShipItemPipe)]; }
-        public bool AimingAtJar(Vector3 point)
-        { return HasJar && (jarTarget.InverseTransformPoint(point)).sqrMagnitude < .17f * .17f; }
         public bool RayAtJar(Ray ray, out Vector3 point)
         {
             point = Vector3.zero; if (!HasJar) return false;
@@ -119,9 +117,8 @@ namespace TobaccoPotAndCigar.Runtime
 {
     using UnityEngine;
 
-    // Sailwind 0.39.1 doubled loose tobacco's inventoryScale (1 -> 2). Native crates show
-    // contents at inventoryScale * .33, which overlaps neighbouring slots in the half-size
-    // jar grid, so jar contents keep the pre-0.39.1 display size.
+    // Loose tobacco's inventoryScale is 2. Native crates show contents at inventoryScale * .33,
+    // which overlaps neighbouring slots in the half-size jar grid, so the jar caps the scale at 1.
     public static class RackJarDisplay
     {
         public const float NativeCrateScale = .33f;
@@ -229,8 +226,10 @@ namespace TobaccoPotAndCigar.Patches
         {
             if (CrateInventoryUI.instance == null || !RackJarDimensionsPatch.IsJar(CrateInventoryUI.instance.currentCrate)) return true;
             var held = activatingPointer.GetHeldItem() as ShipItem;
-            return held == null || (CrateInventoryUI.instance.currentCrate.containedItems.Count < 16 &&
-                (held is ShipItemTobacco || held.GetComponent<DriedTobaccoLeafState>() != null));
+            if (held == null) return true;
+            var leaf = held.GetComponent<FreshTobaccoLeafState>();
+            return CrateInventoryUI.instance.currentCrate.containedItems.Count < 16 &&
+                (held is ShipItemTobacco || (leaf != null && leaf.IsFullyDry) || held.GetComponent<DriedTobaccoLeafState>() != null);
         }
     }
     // Native InsertItem sets the stored display scale for every route into a crate

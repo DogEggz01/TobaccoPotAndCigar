@@ -1,4 +1,4 @@
-// Ashtray — grouped mod source. Existing type identities are preserved.
+// Ashtray: its ash pile, the tray's state, and a vanilla pipe resting on a tray.
 
 // AshPileVisual
 namespace TobaccoPotAndCigar.Runtime

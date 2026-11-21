@@ -1,4 +1,4 @@
-// Cigar — grouped mod source. Existing type identities are preserved.
+// Cigar: smoking patches and effects, recipes and their codes, the cigar's state and visual, and the wrapper.
 
 // PipePatches
 namespace TobaccoPotAndCigar.Patches
@@ -1009,16 +1009,6 @@ public sealed class CigarRuntimeState : MonoBehaviour
             if (savedTrayId != 0) StartCoroutine(RestoreRest());
         }
 
-        public bool TryGetBlend(out TobaccoBlend blend)
-        {
-            blend = default(TobaccoBlend);
-            TobaccoRecipe recipe;
-            if (!TryGetRecipe(out recipe))
-                return false;
-            blend = recipe.ToBlend();
-            return true;
-        }
-
         public bool TryGetRecipe(out TobaccoRecipe recipe)
         {
             recipe = default(TobaccoRecipe);
@@ -1280,7 +1270,9 @@ public sealed class CigarVisualController : MonoBehaviour
         [SerializeField] private Transform burnFront;
         [SerializeField] private Transform unlitTip;
         [SerializeField] private Transform ash;
+#pragma warning disable CS0169 // Unread: kept so the bundled prefab's data still matches the class.
         [SerializeField] private GameObject band;
+#pragma warning restore CS0169
         [SerializeField] private Renderer emberRenderer;
         [SerializeField] private Light emberLight;
         [SerializeField] private BoxCollider rootCollider;
@@ -1299,7 +1291,6 @@ public sealed class CigarVisualController : MonoBehaviour
         private float rootColliderMouthEndY;
         private float pickupColliderMouthEndY;
         private float burnDirectionSign;
-        private float bandThresholdY;
         private float targetRemaining01;
         private float visibleRemaining01;
         private float heat01;
@@ -1347,9 +1338,6 @@ public sealed class CigarVisualController : MonoBehaviour
                 spentBurnFrontPosition.y = mouthAnchor.localPosition.y +
                                            burnDirectionSign * SpentFrontClearance;
             }
-            bandThresholdY = band != null
-                ? band.transform.localPosition.y
-                : spentBurnFrontPosition.y;
 
             CacheRootColliderGeometry();
             CachePickupColliderGeometry();
@@ -1486,9 +1474,6 @@ public sealed class CigarVisualController : MonoBehaviour
             {
                 mouthSmokingTrigger.gameObject.layer = IgnoreRaycastLayer;
             }
-
-            // The pickup trigger now lives on the item root, so it always shares
-            // the root's pointer and inventory layer without synchronization.
         }
 
         private void TryBindPhysicalCollider()
@@ -1544,14 +1529,6 @@ public sealed class CigarVisualController : MonoBehaviour
                     unlitTip.localPosition = burnFront.localPosition;
                     unlitTip.gameObject.SetActive(available && !burned);
                 }
-            }
-
-            if (band != null && burnFront != null)
-            {
-                bool frontBeforeBand = burnDirectionSign > 0f
-                    ? burnFront.localPosition.y > bandThresholdY
-                    : burnFront.localPosition.y < bandThresholdY;
-                band.SetActive(available && frontBeforeBand);
             }
 
             ApplyPhysicalCollider(rootCollider);

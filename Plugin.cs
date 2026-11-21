@@ -1,4 +1,4 @@
-// Shared plugin infrastructure — grouped mod source. Existing type identities are preserved.
+// The plugin, Rad Refinements compatibility, the item, save and shop patches, the asset bundle and prefab registration, shop placement and shared helpers.
 
 // Plugin
 namespace TobaccoPotAndCigar
@@ -19,7 +19,7 @@ namespace TobaccoPotAndCigar
     {
         public const string PluginGuid = "DogEggz.Cigar";
         public const string PluginName = "Tobacco pot and cigar";
-        public const string PluginVersion = "1.2.5";
+        public const string PluginVersion = "1.2.6";
 
         internal static ManualLogSource LogSource { get; private set; }
         internal static string PluginDirectory { get; private set; }
@@ -31,7 +31,6 @@ namespace TobaccoPotAndCigar
             LogSource = Logger;
             PluginDirectory = Path.GetDirectoryName(Info.Location) ?? string.Empty;
             RuntimeDiagnostics.InfoSink = message => Logger.LogInfo(message);
-            RuntimeDiagnostics.WarningSink = message => Logger.LogWarning(message);
             RuntimeDiagnostics.ErrorSink = message => Logger.LogError(message);
 
             try
@@ -149,7 +148,8 @@ internal struct BlueEffectProfile
                 return BlueEffectProfile.VanillaGreen;
 
             if ((enableBlueTobacco == null || bluePotencyMult == null) &&
-                !TryBindConfigEntries(plugin.Instance.GetType().Assembly))
+                (warnedAboutIncompatibleVersion ||
+                 !TryBindConfigEntries(plugin.Instance.GetType().Assembly)))
             {
                 WarnOnce();
                 return BlueEffectProfile.VanillaGreen;
@@ -403,7 +403,7 @@ namespace TobaccoPotAndCigar.Patches
         }
     }
 
-    // Preserve the nailable ashtrays added in the distributed 1.1.3 build.
+    // A hammer can nail an owned ashtray, pipe rack or cigar box.
     [HarmonyPatch(typeof(ShipItemHammer), "CanNail")]
     internal static class AshtrayHammerPatch
     {
@@ -510,6 +510,9 @@ namespace TobaccoPotAndCigar.Patches
         [HarmonyPrefix]
         private static bool Prefix(ShipItem __instance)
         {
+            // Trays and displays hold an item through ItemRigidbody.EnterBox: one in no box is not held.
+            ItemRigidbody body = __instance.itemRigidbodyC;
+            if ((object)body != null && (object)body.GetCurrentBox() == null) return true;
             CigarRuntimeState cigar = __instance.GetComponent<CigarRuntimeState>();
             RestingPipeState pipe = __instance.GetComponent<RestingPipeState>();
             var stored = __instance.GetComponent<SecuredDisplayItem>();
@@ -539,7 +542,6 @@ namespace TobaccoPotAndCigar.Patches
 // Storage/rack ownership is shared by all seven displays; occupants remain independently saved items.
 namespace TobaccoPotAndCigar.Runtime
 {
-    using System;
     using System.Collections;
     using UnityEngine;
 
@@ -644,18 +646,21 @@ namespace TobaccoPotAndCigar.Runtime
         private int savedOwner;
         private bool started;
         private bool inventoryHidden;
+        private bool placed;
+        private Vector3 placedPosition, placedScale;
+        private Quaternion placedRotation;
         public ShipItem Item { get { return item != null ? item : (item = GetComponent<ShipItem>()); } }
         private void Start() { started = true; if (savedOwner != 0) StartCoroutine(Restore()); }
         public void Attach(DisplayStorageState owner, int slot)
         {
-            Owner = owner; Slot = slot; savedOwner = 0;
+            Owner = owner; Slot = slot; savedOwner = 0; placed = false;
             if (layers == null) layers = GetComponentsInChildren<Transform>(true);
             Item.itemRigidbodyC.attached = true; Item.itemRigidbodyC.inStove = true; Item.itemRigidbodyC.disableCol = true;
             Item.ToggleDisallowDisembarking(true); Sync();
         }
         public void Detach(bool drop = false)
         {
-            savedOwner = 0;
+            savedOwner = 0; placed = false;
             if (Owner == null) return;
             DisplayStorageState owner = Owner; Owner = null; owner.Release(this);
             Item.ToggleDisallowDisembarking(false);
@@ -680,10 +685,19 @@ namespace TobaccoPotAndCigar.Runtime
             if (identity == null) identity = GetComponent<SaveablePrefab>();
             identity.SetParentObject(Owner.Identity.GetParentObject());
             Vector3 position; Quaternion rotation; Owner.Pose(Slot, Item, out position, out rotation);
-            transform.SetPositionAndRotation(position, rotation); transform.localScale = Owner.transform.lossyScale;
-            Item.itemRigidbodyC.EnterBox(Owner.transform, Owner.transform.InverseTransformPoint(position), Quaternion.Inverse(Owner.transform.rotation) * rotation);
-            var body = Item.itemRigidbodyC.GetBody(); if (body != null) { body.isKinematic = true; body.position = position; body.rotation = rotation; }
-            if (Item.currentActualBoat != null && Item.currentWalkCol != null) Item.itemRigidbodyC.ForceRigidbodyToWalkCol();
+            Vector3 scale = Owner.transform.lossyScale;
+            // Off a boat, an item still in its box at the pose last written needs no new writes: the game holds a boxed item
+            // at its box pose every physics step. Aboard, the physics copy must be mapped into the boat's collision space again.
+            bool unchanged = placed && Item.currentActualBoat == null && position == placedPosition && rotation == placedRotation &&
+                scale == placedScale && transform.position == position && Item.itemRigidbodyC.GetCurrentBox() == Owner.transform;
+            if (!unchanged)
+            {
+                transform.SetPositionAndRotation(position, rotation); transform.localScale = scale;
+                Item.itemRigidbodyC.EnterBox(Owner.transform, Owner.transform.InverseTransformPoint(position), Quaternion.Inverse(Owner.transform.rotation) * rotation);
+                var body = Item.itemRigidbodyC.GetBody(); if (body != null) { body.isKinematic = true; body.position = position; body.rotation = rotation; }
+                if (Item.currentActualBoat != null && Item.currentWalkCol != null) Item.itemRigidbodyC.ForceRigidbodyToWalkCol();
+                placed = true; placedPosition = position; placedRotation = rotation; placedScale = scale;
+            }
             bool inInventory = ownerItem.itemRigidbodyC.GetCurrentInventorySlot() != null;
             if (inventoryHidden != inInventory) { Item.GetComponent<Collider>().enabled = !inInventory; inventoryHidden = inInventory; }
             SetLayer(ownerItem.gameObject.layer == 26 ? 26 : inInventory ? 5 : ownerItem.held != null ? 2 : 0);
@@ -1060,7 +1074,6 @@ namespace TobaccoPotAndCigar.Patches
         [HarmonyPrefix]
         private static void Prefix(ShopItemSpawner __instance)
         {
-            StorageShopPlacement.Configure(__instance);
             ShopPlacement.ConfigureSpawnerBeforeStart(__instance);
         }
 
@@ -1540,7 +1553,7 @@ internal static class ShopPlacement
             }
             if (spawner.gameObject.scene.name == GoldRockScene)
             {
-                // These two table slots were only 20 cm apart. Turn the 41 cm
+                // The game's two table slots are only 20 cm apart. Turn the 41 cm
                 // wrappers across the row and space their narrow sides by 26 cm.
                 spawner.transform.localPosition = spawner.name == "shop item (171)"
                     ? new Vector3(1568.48525f, 7.368f, -399.9322f)
@@ -1548,7 +1561,7 @@ internal static class ShopPlacement
                 spawner.transform.localEulerAngles = new Vector3(0, 145.594f, 0);
                 return;
             }
-            // The new model's opening is +Y; old leaf displays used a Z-up mesh.
+            // The wrapper model's opening is +Y: turn the spawner's up axis to world up.
             spawner.transform.rotation = Quaternion.FromToRotation(spawner.transform.up, Vector3.up) * spawner.transform.rotation;
         }
 
@@ -1727,29 +1740,37 @@ internal static class ShopPlacement
 }
 
 
-// The approved regional counter layouts use native spawners and restocking.
+// The regional counter layouts use native spawners and restocking.
 namespace TobaccoPotAndCigar.Shops
 {
-    using System;
     using System.Linq;
     using System.Reflection;
     using UnityEngine;
     using TobaccoPotAndCigar.Prefabs;
-    using TobaccoPotAndCigar.Runtime;
 
     internal static class StorageShopPlacement
     {
+        // The marker on each port's configured anchor. One destroyed with its scene compares equal to null.
+        private static readonly StorageShopMarker[] Configured = new StorageShopMarker[3];
+
         internal static void Configure(ShopItemSpawner first)
         {
-            if (!CigarPrefabRegistrar.IsReady || first == null || !first.gameObject.scene.IsValid()) return;
-            string scene = first.gameObject.scene.name;
+            if (!CigarPrefabRegistrar.IsReady || first == null) return;
+            var home = first.gameObject.scene;
+            if (!home.IsValid()) return;
+            string scene = home.name;
             int region = scene == "island 1 A Gold Rock" ? 0 : scene == "island 15 M (Fort)" ? 1 : scene == "island 9 E Dragon Cliffs" ? 2 : -1;
             if (region < 0) return;
+            // One object search per load of the port: its other spawners return here.
+            StorageShopMarker marker = Configured[region];
+            if (marker != null && marker.gameObject.scene == home) return;
             string anchorName = region == 0 ? "shop item (171)" : region == 1 ? "shop item (24)" : "shop item spawner (184)";
-            var all = Resources.FindObjectsOfTypeAll<ShopItemSpawner>().Where(s => s.gameObject.scene == first.gameObject.scene).ToArray();
+            var all = Resources.FindObjectsOfTypeAll<ShopItemSpawner>().Where(s => s.gameObject.scene == home).ToArray();
             var anchor = all.SingleOrDefault(s => s.name == anchorName);
-            if (anchor == null || anchor.GetComponent<StorageShopMarker>() != null) return;
-            anchor.gameObject.AddComponent<StorageShopMarker>();
+            if (anchor == null) return;
+            Configured[region] = anchor.GetComponent<StorageShopMarker>();
+            if (Configured[region] != null) return;
+            Configured[region] = anchor.gameObject.AddComponent<StorageShopMarker>();
             Vector3 origin = anchor.transform.position; origin.y = 0;
             if (region == 0)
             {
@@ -1761,7 +1782,7 @@ namespace TobaccoPotAndCigar.Shops
                 Vector3 deskPosition = origin + new Vector3(.04406f, 3.06400f, .35797f);
                 Quaternion deskRotation = Quaternion.Euler(0,179.065f,0);
                 Create(anchor, 625, deskPosition, deskRotation, false);
-                // R08 has a horizontal rail, not the older vertical backplate. Display it
+                // The wall rack has a horizontal rail, not a vertical backplate. Display it
                 // flat, 48 cm along the counter from the desk rack, with aligned centres.
                 Quaternion wallRotation = Quaternion.Euler(0,359.065f,0);
                 var deskCollider = CigarAssetBundle.GetPrefab(625).GetComponent<BoxCollider>();
@@ -1929,31 +1950,6 @@ public static class PrefabReplacement
             }
         }
 
-        public static bool ReplaceOwnedItem(
-            ShipItem source,
-            int resultPrefabIndex,
-            float replacementHealth,
-            float replacementAmount)
-        {
-            return ReplaceOwnedItem(
-                source,
-                resultPrefabIndex,
-                replacementHealth,
-                replacementAmount,
-                Vector3.zero);
-        }
-
-        public static bool ReplaceOwnedItem(
-            ShipItem source,
-            int resultPrefabIndex,
-            float replacementHealth,
-            float replacementAmount,
-            Vector3 worldPositionOffset)
-        {
-            return ReplaceOwnedItem(source, resultPrefabIndex, replacementHealth, replacementAmount,
-                worldPositionOffset, source != null ? source.transform.rotation : Quaternion.identity);
-        }
-
         public static bool ReplaceOwnedItem(ShipItem source, int resultPrefabIndex,
             float replacementHealth, float replacementAmount, Vector3 worldPositionOffset, Quaternion rotation)
         {
@@ -2093,7 +2089,6 @@ namespace TobaccoPotAndCigar.Runtime
 public static class RuntimeDiagnostics
     {
         public static Action<string> InfoSink;
-        public static Action<string> WarningSink;
         public static Action<string> ErrorSink;
 
         public static void Info(string message)
@@ -2102,14 +2097,6 @@ public static class RuntimeDiagnostics
                 InfoSink(message);
             else
                 Debug.Log("Tobacco pot and cigar: " + message);
-        }
-
-        public static void Warning(string message)
-        {
-            if (WarningSink != null)
-                WarningSink(message);
-            else
-                Debug.LogWarning("Tobacco pot and cigar: " + message);
         }
 
         public static void Error(string message)
@@ -2123,7 +2110,6 @@ public static class RuntimeDiagnostics
         public static void Reset()
         {
             InfoSink = null;
-            WarningSink = null;
             ErrorSink = null;
         }
     }
