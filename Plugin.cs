@@ -1,6 +1,3 @@
-// The plugin, Rad Refinements compatibility, the item, save and shop patches, the asset bundle and prefab registration, shop placement and shared helpers.
-
-// Plugin
 namespace TobaccoPotAndCigar
 {
     using System.IO;
@@ -19,7 +16,8 @@ namespace TobaccoPotAndCigar
     {
         public const string PluginGuid = "DogEggz.Cigar";
         public const string PluginName = "Tobacco pot and cigar";
-        public const string PluginVersion = "1.2.6";
+        public const string PluginVersion = "1.2.7";
+        internal const int PointerMask = -67713029;
 
         internal static ManualLogSource LogSource { get; private set; }
         internal static string PluginDirectory { get; private set; }
@@ -45,7 +43,6 @@ namespace TobaccoPotAndCigar
             }
             catch (System.Exception exception)
             {
-                // Unity exceptions may be excluded from BepInEx's disk log.
                 Logger.LogError("Cigar initialization failed: " + exception);
                 throw;
             }
@@ -67,8 +64,6 @@ namespace TobaccoPotAndCigar
 }
 
 
-// Apply vanilla distance culling to the complete authored item, excluding the
-// invisible outline proxy. Native ShipItem otherwise registers only its root.
 namespace TobaccoPotAndCigar.Patches
 {
     using HarmonyLib;
@@ -98,7 +93,6 @@ namespace TobaccoPotAndCigar.Patches
     }
 }
 
-// RadRefinementsCompatibility
 namespace TobaccoPotAndCigar.Compatibility
 {
     using System;
@@ -200,7 +194,6 @@ internal struct BlueEffectProfile
 }
 
 
-// ItemInteractionPatches
 namespace TobaccoPotAndCigar.Patches
 {
     using HarmonyLib;
@@ -388,10 +381,9 @@ namespace TobaccoPotAndCigar.Patches
                 GameState.inCursorMenu || GameState.sleeping || GameState.inBed || BoatCamera.on) return;
             AshtrayState heldTray = __instance.GetComponent<AshtrayState>();
             if (heldTray != null) { heldTray.BeginEmptying(); return; }
-            // Resolve this press against the current ray; native pointedAtButton can be stale.
             RaycastHit hit;
             if (!Physics.Raycast(activatingPointer.transform.position, activatingPointer.transform.forward,
-                out hit, 1.8f, -604165)) return;
+                out hit, 1.8f, Plugin.PointerMask)) return;
             ShipItem target = hit.collider.GetComponent<ShipItem>();
             if (target == null || !target.sold || target.unclickable) return;
             FreshTobaccoLeafState held = __instance.GetComponent<FreshTobaccoLeafState>();
@@ -403,7 +395,6 @@ namespace TobaccoPotAndCigar.Patches
         }
     }
 
-    // A hammer can nail an owned ashtray, pipe rack or cigar box.
     [HarmonyPatch(typeof(ShipItemHammer), "CanNail")]
     internal static class AshtrayHammerPatch
     {
@@ -424,7 +415,7 @@ namespace TobaccoPotAndCigar.Patches
             var stored = __instance.GetComponent<SecuredDisplayItem>();
             if (stored != null) stored.Detach();
             CigarRuntimeState cigar = __instance.GetComponent<CigarRuntimeState>();
-            if (cigar != null) cigar.LeaveRest();
+            if (cigar != null) { cigar.LeaveRest(); cigar.Pipe.heldRotationOffset = CigarRuntimeState.DrawTilt; }
             RestingPipeState pipe = __instance.GetComponent<RestingPipeState>();
             if (pipe != null) pipe.LeaveRest();
             AshtrayState tray = __instance.GetComponent<AshtrayState>();
@@ -460,8 +451,6 @@ namespace TobaccoPotAndCigar.Patches
                     parameters[1].ParameterType == typeof(RaycastHit).MakeByRefType() &&
                     parameters[2].ParameterType == typeof(float) && parameters[3].ParameterType == typeof(int))
                 {
-                    // Preserve the original call so other pointer patches (including Wind Totem)
-                    // can still replace it. Also accept an already-replaced call of this signature.
                     yield return new CodeInstruction(OpCodes.Ldarg_0);
                     yield return new CodeInstruction(OpCodes.Ldarg_0);
                     yield return new CodeInstruction(OpCodes.Ldflda, hitField);
@@ -492,8 +481,7 @@ namespace TobaccoPotAndCigar.Patches
             if (pipe != null && pipe.Raycast(ray, out seatedHit, closest))
             { hit = seatedHit; direct = true; }
             if (direct) return true;
-            // Only assist over this occupied tray; other objects retain native occlusion.
-            int count = Physics.SphereCastNonAlloc(ray, .012f, NearbyHits, 1.8f, -604165);
+            int count = Physics.SphereCastNonAlloc(ray, .012f, NearbyHits, 1.8f, Plugin.PointerMask);
             for (int i = 0; i < count; i++)
                 if ((NearbyHits[i].collider == cigar || NearbyHits[i].collider == pipe) && NearbyHits[i].distance < closest)
                 { hit = NearbyHits[i]; closest = hit.distance; }
@@ -510,7 +498,6 @@ namespace TobaccoPotAndCigar.Patches
         [HarmonyPrefix]
         private static bool Prefix(ShipItem __instance)
         {
-            // Trays and displays hold an item through ItemRigidbody.EnterBox: one in no box is not held.
             ItemRigidbody body = __instance.itemRigidbodyC;
             if ((object)body != null && (object)body.GetCurrentBox() == null) return true;
             CigarRuntimeState cigar = __instance.GetComponent<CigarRuntimeState>();
@@ -539,7 +526,6 @@ namespace TobaccoPotAndCigar.Patches
 }
 
 
-// Storage/rack ownership is shared by all seven displays; occupants remain independently saved items.
 namespace TobaccoPotAndCigar.Runtime
 {
     using System.Collections;
@@ -559,8 +545,6 @@ namespace TobaccoPotAndCigar.Runtime
         public void ConfigureSeats(Transform[] value) { seats = value; }
         private void LateUpdate()
         {
-            // Vanilla changes only the root layer on pickup/drop. The moving lid
-            // must follow it, including after native inventory-slot withdrawal.
             if (interactionColliders == null) interactionColliders = GetComponentsInChildren<Collider>(true);
             foreach (var collider in interactionColliders)
                 if (collider != null) collider.gameObject.layer = gameObject.layer;
@@ -686,8 +670,6 @@ namespace TobaccoPotAndCigar.Runtime
             identity.SetParentObject(Owner.Identity.GetParentObject());
             Vector3 position; Quaternion rotation; Owner.Pose(Slot, Item, out position, out rotation);
             Vector3 scale = Owner.transform.lossyScale;
-            // Off a boat, an item still in its box at the pose last written needs no new writes: the game holds a boxed item
-            // at its box pose every physics step. Aboard, the physics copy must be mapped into the boat's collision space again.
             bool unchanged = placed && Item.currentActualBoat == null && position == placedPosition && rotation == placedRotation &&
                 scale == placedScale && transform.position == position && Item.itemRigidbodyC.GetCurrentBox() == Owner.transform;
             if (!unchanged)
@@ -744,8 +726,8 @@ namespace TobaccoPotAndCigar.Runtime
         public Vector3 Point;
         private int withdrawalFrame = -1;
         private ShipItem lastHovered;
-        public override void Start() { } // No invisible outline renderer or extra mesh.
-        private void LateUpdate() { } // Native button outlines require a visible mesh.
+        public override void Start() { }
+        private void LateUpdate() { }
         public void Refresh(GoPointer pointer)
         {
             var occupant = Owner.GetContent(Slot);
@@ -784,8 +766,6 @@ namespace TobaccoPotAndCigar.Runtime
         {
             if (pipe == null) return;
             Heat.SetValue(pipe, 0f);
-            // Wall-rack pipes only lose heat. Native UpdateParticles toggles
-            // emission; it never restarts a stopped particle system.
             var cigar = pipe.GetComponent<CigarRuntimeState>();
             if (cigar == null) return;
             Inhaling.SetValue(pipe, false); Drinking.SetValue(pipe, false);
@@ -796,7 +776,6 @@ namespace TobaccoPotAndCigar.Runtime
 }
 
 
-// Scoped storage interactions preserve native controls and all unrelated pointer/UI behavior.
 namespace TobaccoPotAndCigar.Patches
 {
     using HarmonyLib;
@@ -817,7 +796,7 @@ namespace TobaccoPotAndCigar.Patches
             if (held == null || (!(held is ShipItemPipe) && held.GetComponent<DisplayStorageState>() == null)) return true;
             if (!IsHeld(hit.collider, held)) return true;
             Ray ray = pointer.debugEditorPointer && Camera.main != null ? Camera.main.ScreenPointToRay(Input.mousePosition) : Ray(pointer);
-            int count = Physics.RaycastNonAlloc(ray, SelfHits, 1.8f, -604165);
+            int count = Physics.RaycastNonAlloc(ray, SelfHits, 1.8f, Plugin.PointerMask);
             float distance = float.MaxValue; bool found = false;
             for (int i = 0; i < count; i++)
                 if (!IsHeld(SelfHits[i].collider, held) && SelfHits[i].distance < distance)
@@ -841,8 +820,6 @@ namespace TobaccoPotAndCigar.Patches
             if (owner == null || owner.Item.held != null || owner.Item.unclickable) return;
             Ray ray = __instance.debugEditorPointer && Camera.main != null ? Camera.main.ScreenPointToRay(Input.mousePosition) : Ray(__instance);
             var held = __instance.GetHeldItem() != null ? __instance.GetHeldItem().GetComponent<ShipItem>() : null;
-            // A lid is a moving child collider, including on unsold stock. Never
-            // replace its native sale/hammer identity with a content proxy.
             if (!owner.Item.sold || held is ShipItemHammer)
             {
                 if (held == null || held.AllowOnItemClick(owner.Item)) Assign(__instance, owner.Item, hit.distance);
@@ -857,13 +834,10 @@ namespace TobaccoPotAndCigar.Patches
                     Assign(__instance, box.Target(slot, point, __instance), Vector3.Distance(point, ray.origin));
                     return;
                 }
-                // Closed glass/slats never allow the visible occupant to be removed.
                 Assign(__instance, owner.Item.nailed ? (GoPointerButton)owner.Target(-3, hit.point, __instance) : owner.Item, hit.distance); return;
             }
             var rack = owner as PipeRackState;
             if (rack == null) return;
-            // Retain the native pipe as the target while holding tobacco, so its native
-            // LoadTobacco path still works in every rack.
             float nearest = 1.8f; SecuredDisplayItem nearestItem = null;
             for (int i = 0; i < rack.Capacity; i++)
             {
@@ -902,8 +876,6 @@ namespace TobaccoPotAndCigar.Patches
         }
     }
 
-    // Let vanilla render purchases, controls and descriptions. Only suppress
-    // the redundant standalone furniture/slot name, not the cigar recipe hint.
     [HarmonyPatch(typeof(LookUI), "ShowLookText")]
     internal static class StorageLookTextPatch
     {
@@ -935,8 +907,6 @@ namespace TobaccoPotAndCigar.Patches
             var display = held != null ? held.GetComponent<DisplayStorageState>() : null;
             if (display != null && !held.big)
             {
-                // Native small-item carry rotation is reconstructed every frame.
-                // Compose the facing change once, after that native calculation.
                 held.transform.rotation = __instance.transform.rotation * Quaternion.Euler(held.heldRotationOffset, 180, 0);
                 display.SyncContents();
             }
@@ -950,7 +920,6 @@ namespace TobaccoPotAndCigar.Patches
     }
 }
 
-// PrefabRegistrationPatches
 namespace TobaccoPotAndCigar.Patches
 {
     using HarmonyLib;
@@ -975,7 +944,6 @@ namespace TobaccoPotAndCigar.Patches
 }
 
 
-// SaveLoadSyncPatches
 namespace TobaccoPotAndCigar.Patches
 {
     using HarmonyLib;
@@ -1056,7 +1024,6 @@ namespace TobaccoPotAndCigar.Patches
 }
 
 
-// ShopPlacementPatches
 namespace TobaccoPotAndCigar.Patches
 {
     using HarmonyLib;
@@ -1096,7 +1063,6 @@ namespace TobaccoPotAndCigar.Patches
 }
 
 
-// CigarAssetBundle
 namespace TobaccoPotAndCigar.Prefabs
 {
     using System;
@@ -1178,7 +1144,6 @@ internal static class CigarAssetBundle
 }
 
 
-// CigarPrefabRegistrar
 namespace TobaccoPotAndCigar.Prefabs
 {
     using System;
@@ -1373,7 +1338,6 @@ internal static class CigarPrefabRegistrar
 }
 
 
-// ShopPlacement
 namespace TobaccoPotAndCigar.Shops
 {
     using System.Collections.Generic;
@@ -1439,8 +1403,6 @@ internal static class ShopPlacement
 
             string scene = anchor.gameObject.scene.name;
             string name = anchor.gameObject.name;
-            // Most native stock is unrelated. Only scan for duplicate identities
-            // after identifying one of our anchors or generated wrapper displays.
             bool candidate = IsWrapperDisplay(anchor) ||
                 (scene == FortAestrinScene && name == "shop item (24)") ||
                 (scene == NeverdinScene && name == "shop item (32)") ||
@@ -1490,7 +1452,6 @@ internal static class ShopPlacement
                 AlignWrapper(anchor);
                 ReconcileWrapperStock(anchor);
             }
-            // Each regional tobacco counter also carries its matching ashtray.
             if (scene == GoldRockScene && name == "shop item (171)")
                 CreateRelativeSpawner(anchor, "DogEggz.Cigar.Ashtray.AlAnkh", new Vector3(.024026f, -.062822f, -2.044131f), new Vector3(.159581f, .015844f, 11.339650f), RuntimeConstants.AlAnkhWoodAshtrayPrefabIndex);
             if (scene == DragonCliffsScene && name == "shop item spawner (184)")
@@ -1498,8 +1459,6 @@ internal static class ShopPlacement
             if (scene == FortAestrinScene && name == "shop item (24)")
                 CreateRelativeSpawner(anchor, "DogEggz.Cigar.Ashtray.Aestrin", new Vector3(-.749037f, -.127f, -.995985f), Vector3.zero, RuntimeConstants.AestrinWoodAshtrayPrefabIndex);
 
-            // Anchor to native food stock at each tavern; the measured offsets keep
-            // the complete tray supported and clear of the existing goods.
             if (scene == NeverdinScene && name == "shop item (32)")
                 CreateTavernAshtray(anchor, "Neverdin", new Vector3(.749442f, -.032372f, -.702033f), RuntimeConstants.ClayAshtrayPrefabIndex);
             if (scene == SirenSongScene && name == "shop item (77)")
@@ -1518,8 +1477,6 @@ internal static class ShopPlacement
 
         private static void CreateTavernAshtray(ShopItemSpawner anchor, string town, Vector3 offset, int prefabIndex)
         {
-            // Native food spawners may be tilted. Use the upright orientation
-            // checked against their counters, independently of the food's pose.
             CreateRelativeSpawner(anchor, "DogEggz.Cigar.Ashtray." + town, offset,
                 Quaternion.Inverse(anchor.transform.rotation).eulerAngles, prefabIndex);
         }
@@ -1544,7 +1501,6 @@ internal static class ShopPlacement
         {
             if (spawner.gameObject.scene.name == DragonCliffsScene)
             {
-                // Parallel wrappers, spaced across their narrow sides on the counter.
                 Quaternion rotation = Quaternion.Euler(0, 317.992f, 0);
                 spawner.transform.localPosition = new Vector3(-34.694f, 3.453f, -557.039f) +
                     rotation * new Vector3(0, 0, spawner.name == "shop item spawner (184)" ? -.08f : -.37f);
@@ -1553,15 +1509,12 @@ internal static class ShopPlacement
             }
             if (spawner.gameObject.scene.name == GoldRockScene)
             {
-                // The game's two table slots are only 20 cm apart. Turn the 41 cm
-                // wrappers across the row and space their narrow sides by 26 cm.
                 spawner.transform.localPosition = spawner.name == "shop item (171)"
                     ? new Vector3(1568.48525f, 7.368f, -399.9322f)
                     : new Vector3(1568.17975f, 7.368f, -399.5058f);
                 spawner.transform.localEulerAngles = new Vector3(0, 145.594f, 0);
                 return;
             }
-            // The wrapper model's opening is +Y: turn the spawner's up axis to world up.
             spawner.transform.rotation = Quaternion.FromToRotation(spawner.transform.up, Vector3.up) * spawner.transform.rotation;
         }
 
@@ -1608,7 +1561,6 @@ internal static class ShopPlacement
 
             Transform table = FindDirectChild(parent, "east_market_stall 1 (1)");
             if (table == null) { LogIdentityFailure(SageHillsScene + "/east_market_stall 1 (1)"); return; }
-            // The imported table is Z-up: its local Y edge runs along the ground.
             Vector3 row = Vector3.ProjectOnPlane(-table.up, Vector3.up).normalized;
             if (Vector3.Dot(row, shopkeeper.transform.forward) < 0) row = -row;
             Vector3 step = shopkeeper.transform.InverseTransformVector(row * .72f);
@@ -1674,8 +1626,6 @@ internal static class ShopPlacement
             spawner.availableAtNight = availableAtNight;
             spawner.priceMult = priceMultiplier;
             if (prefabIndex == RuntimeConstants.CigarWrapperPrefabIndex) AlignWrapper(spawner);
-            // Ashtray display poses follow the measured counter surface. Pickup
-            // separately resets their facing and tilt in AshtrayState.
             Plugin.LogSource?.LogInfo(
                 "Added shop display " + hostName + " in " +
                 anchor.gameObject.scene.name + ".");
@@ -1740,7 +1690,6 @@ internal static class ShopPlacement
 }
 
 
-// The regional counter layouts use native spawners and restocking.
 namespace TobaccoPotAndCigar.Shops
 {
     using System.Linq;
@@ -1750,7 +1699,6 @@ namespace TobaccoPotAndCigar.Shops
 
     internal static class StorageShopPlacement
     {
-        // The marker on each port's configured anchor. One destroyed with its scene compares equal to null.
         private static readonly StorageShopMarker[] Configured = new StorageShopMarker[3];
 
         internal static void Configure(ShopItemSpawner first)
@@ -1761,7 +1709,6 @@ namespace TobaccoPotAndCigar.Shops
             string scene = home.name;
             int region = scene == "island 1 A Gold Rock" ? 0 : scene == "island 15 M (Fort)" ? 1 : scene == "island 9 E Dragon Cliffs" ? 2 : -1;
             if (region < 0) return;
-            // One object search per load of the port: its other spawners return here.
             StorageShopMarker marker = Configured[region];
             if (marker != null && marker.gameObject.scene == home) return;
             string anchorName = region == 0 ? "shop item (171)" : region == 1 ? "shop item (24)" : "shop item spawner (184)";
@@ -1782,8 +1729,6 @@ namespace TobaccoPotAndCigar.Shops
                 Vector3 deskPosition = origin + new Vector3(.04406f, 3.06400f, .35797f);
                 Quaternion deskRotation = Quaternion.Euler(0,179.065f,0);
                 Create(anchor, 625, deskPosition, deskRotation, false);
-                // The wall rack has a horizontal rail, not a vertical backplate. Display it
-                // flat, 48 cm along the counter from the desk rack, with aligned centres.
                 Quaternion wallRotation = Quaternion.Euler(0,359.065f,0);
                 var deskCollider = CigarAssetBundle.GetPrefab(625).GetComponent<BoxCollider>();
                 var wallCollider = CigarAssetBundle.GetPrefab(626).GetComponent<BoxCollider>();
@@ -1839,12 +1784,10 @@ namespace TobaccoPotAndCigar.Shops
                 var stock=Stock.GetValue(spawners[i]) as ShipItem;
                 bool present=stock!=null && !stock.sold;
                 Vector3 heldPosition=stock!=null?stock.transform.position:Vector3.zero;
-                // Sold/missing crates do not leave the remaining shop goods floating.
                 Vector3 position=transform.TransformPoint(baseLocal+stepLocal*level);
                 spawners[i].transform.position=position;
                 if(!present) continue;
                 stock.transform.position=stock.held==null?position:heldPosition;
-                // Native return-to-shop restores this local pose relative to the shop area.
                 var area=Shop.GetValue(stock) as ShopArea;
                 if(area!=null) ReturnPosition.SetValue(stock,area.transform.InverseTransformPoint(position));
                 level++;
@@ -1853,7 +1796,6 @@ namespace TobaccoPotAndCigar.Shops
     }
 }
 
-// PrefabReplacement
 namespace TobaccoPotAndCigar.Runtime
 {
     using System;
@@ -2038,7 +1980,6 @@ public static class PrefabReplacement
 }
 
 
-// RuntimeConstants
 namespace TobaccoPotAndCigar.Runtime
 {
 
@@ -2081,7 +2022,6 @@ public static class RuntimeConstants
 }
 
 
-// RuntimeDiagnostics
 namespace TobaccoPotAndCigar.Runtime
 {
     using System;
@@ -2116,7 +2056,6 @@ public static class RuntimeDiagnostics
 }
 
 
-// RuntimeStateSynchronizer
 namespace TobaccoPotAndCigar.Runtime
 {
 
@@ -2159,7 +2098,6 @@ public static class RuntimeStateSynchronizer
 }
 
 
-// Rad owns the click toggle; only its tobacco-presence reads need cigar support.
 namespace TobaccoPotAndCigar.Compatibility
 {
     using System;
@@ -2205,7 +2143,6 @@ namespace TobaccoPotAndCigar.Compatibility
             }
             catch (Exception exception)
             {
-                // Optional third-party integration must not prevent cigar initialization.
                 WarnOnce("patch installation failed: " + exception);
             }
         }

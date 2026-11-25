@@ -1,6 +1,3 @@
-// Cigar: smoking patches and effects, recipes and their codes, the cigar's state and visual, and the wrapper.
-
-// PipePatches
 namespace TobaccoPotAndCigar.Patches
 {
     using HarmonyLib;
@@ -26,10 +23,20 @@ namespace TobaccoPotAndCigar.Patches
         [HarmonyPrefix]
         private static void Prefix(
             ShipItemPipe __instance,
+            bool ___drinking,
+            ref bool ___wasDrinking,
+            float ___initialHoldDistance,
             out CigarRuntimeState __state)
         {
             __state = __instance.GetComponent<CigarRuntimeState>();
             CigarSmokeContext.Current = __state;
+            if (__state != null && __instance.held != null && ___initialHoldDistance != 0f)
+                __instance.transform.rotation *= UnityEngine.Quaternion.Euler(-__instance.heldRotationOffset, 0f, 0f);
+            if (__state != null && !___drinking && ___wasDrinking)
+            {
+                ___wasDrinking = false;
+                __instance.heldRotationOffset = CigarRuntimeState.DrawTilt;
+            }
         }
 
         [HarmonyPostfix]
@@ -72,7 +79,6 @@ namespace TobaccoPotAndCigar.Patches
         }
     }
 
-    // Vanilla starts a puff on any mouth contact; only a held pipe or cigar may start one.
     [HarmonyPatch(typeof(ShipItemPipe), "Smoke")]
     internal static class PipeHeldSmokePatch
     {
@@ -83,7 +89,6 @@ namespace TobaccoPotAndCigar.Patches
         }
     }
 
-    // A pipe or cigar that is neither held nor inhaling leaves the mouth without an exhale.
     [HarmonyPatch(typeof(ShipItemPipe), "StopSmoking")]
     internal static class PipeIdleExhalePatch
     {
@@ -96,7 +101,6 @@ namespace TobaccoPotAndCigar.Patches
 }
 
 
-// TobaccoEffectPatches
 namespace TobaccoPotAndCigar.Patches
 {
     using HarmonyLib;
@@ -139,7 +143,6 @@ namespace TobaccoPotAndCigar.Patches
 }
 
 
-// VanillaPipeSmokeProfile
 namespace TobaccoPotAndCigar.Prefabs
 {
     using System;
@@ -149,7 +152,6 @@ internal static class VanillaPipeSmokeProfile
     {
         internal const float EmissionRate = 120f;
         internal const float MaximumLifetime = 12f;
-        // 120/s * 12s = 1440 live particles at maximum smoke, plus headroom.
         internal const int MaximumParticles = 1536;
 
         internal static void ApplyRequired(GameObject prefab, int prefabIndex)
@@ -203,7 +205,6 @@ internal static class VanillaPipeSmokeProfile
 }
 
 
-// CigarEffectService
 namespace TobaccoPotAndCigar.Smoking
 {
     using System.Collections.Generic;
@@ -360,7 +361,6 @@ internal static class CigarEffectService
 }
 
 
-// CigarSmokeContext
 namespace TobaccoPotAndCigar.Smoking
 {
     using TobaccoPotAndCigar.Runtime;
@@ -371,7 +371,6 @@ internal static class CigarSmokeContext
 }
 
 
-// CigarEffectMath
 namespace TobaccoPotAndCigar.Runtime
 {
 
@@ -416,7 +415,6 @@ public struct CigarEffectTotals
 }
 
 
-// CigarEmberMath
 namespace TobaccoPotAndCigar.Runtime
 {
     using UnityEngine;
@@ -503,7 +501,6 @@ public enum CigarEmberCoolingPhase
 }
 
 
-// CigarHintText
 namespace TobaccoPotAndCigar.Runtime
 {
 
@@ -574,7 +571,6 @@ public static class CigarHintText
 }
 
 
-// CigarValueMath
 namespace TobaccoPotAndCigar.Runtime
 {
     using System;
@@ -621,7 +617,6 @@ public static class CigarValueMath
 }
 
 
-// TobaccoBlend
 namespace TobaccoPotAndCigar.Runtime
 {
     using System;
@@ -742,7 +737,6 @@ public enum CigarTobaccoType
 }
 
 
-// TobaccoRecipe
 namespace TobaccoPotAndCigar.Runtime
 {
     using System;
@@ -958,13 +952,14 @@ public struct TobaccoRecipe
 }
 
 
-// CigarRuntimeState
 namespace TobaccoPotAndCigar.Runtime
 {
     using System.Collections;
     using UnityEngine;
 public sealed class CigarRuntimeState : MonoBehaviour
     {
+        public const float DrawTilt = 77f;
+
         [SerializeField] private CigarVisualController cigarVisual;
 
         private ShipItemPipe pipe;
@@ -1160,7 +1155,6 @@ public sealed class CigarRuntimeState : MonoBehaviour
         public void SyncRestParent()
         {
             if (!IsResting) return;
-            // Native EnterBox owns pose/physics. Carry its boat save context too.
             ShipItem tray = restingTray.Item;
             if (tray.GetComponent<SaveablePrefab>().currentCrateId != 0 ||
                 (tray.itemRigidbodyC != null && tray.itemRigidbodyC.GetCurrentInventorySlot() != null))
@@ -1179,7 +1173,6 @@ public sealed class CigarRuntimeState : MonoBehaviour
         {
             float initial = GetInitialHealth();
             float remaining = initial > 0 ? Mathf.Clamp01(pipe.health / initial) : 0;
-            // Keep the middle of the remaining wrapper supported by the groove.
             return restSocket.localPosition + restSocket.localRotation * Vector3.up * (.116f * (1 - remaining));
         }
 
@@ -1188,7 +1181,6 @@ public sealed class CigarRuntimeState : MonoBehaviour
             if (IsResting) SyncRestParent();
             data.extraValue0 = ashClearedAt01;
             int id = IsResting ? restingTray.GetComponent<SaveablePrefab>().instanceId : savedTrayId;
-            // Split the 31-bit native ID: a single float cannot preserve every ID.
             data.extraValue1 = id & 65535;
             data.extraValue2 = (id >> 16) & 32767;
             data.extraValue3 = restSlot;
@@ -1215,7 +1207,6 @@ public sealed class CigarRuntimeState : MonoBehaviour
         private IEnumerator RestoreRest()
         {
             while (GameState.currentlyLoading) yield return null;
-            // Native item rigidbodies and all saved tray IDs may initialize later.
             for (int frame = 0; frame < 120 && savedTrayId != 0; frame++)
             {
                 if (SaveLoadManager.instance != null)
@@ -1227,14 +1218,12 @@ public sealed class CigarRuntimeState : MonoBehaviour
                         }
                 yield return null;
             }
-            // Missing/occupied tray leaves the independently saved cigar recoverable.
             savedTrayId = 0;
         }
     }
 }
 
 
-// CigarVisualController
 namespace TobaccoPotAndCigar.Runtime
 {
     using UnityEngine;
@@ -1270,7 +1259,7 @@ public sealed class CigarVisualController : MonoBehaviour
         [SerializeField] private Transform burnFront;
         [SerializeField] private Transform unlitTip;
         [SerializeField] private Transform ash;
-#pragma warning disable CS0169 // Unread: kept so the bundled prefab's data still matches the class.
+#pragma warning disable CS0169
         [SerializeField] private GameObject band;
 #pragma warning restore CS0169
         [SerializeField] private Renderer emberRenderer;
@@ -1382,7 +1371,6 @@ public sealed class CigarVisualController : MonoBehaviour
             ash.gameObject.SetActive(available && length > .00001f);
             float scale = length / ashMeshLength;
             ash.localScale = new Vector3(ashOriginalScale.x, ashOriginalScale.y * scale, ashOriginalScale.z);
-            // Keep the ash's rear edge touching the moving ember while its front grows.
             ash.localPosition = ashOriginalPosition + Vector3.up * ashMeshBase * (1 - scale);
         }
 
@@ -1467,8 +1455,6 @@ public sealed class CigarVisualController : MonoBehaviour
 
         private void SyncInteractionLayers()
         {
-            // The mouth trigger must participate in mouth collisions but never
-            // intercept GoPointer's single ray.
             if (mouthSmokingTrigger != null &&
                 mouthSmokingTrigger.gameObject.layer != IgnoreRaycastLayer)
             {
@@ -1673,7 +1659,6 @@ public sealed class CigarVisualController : MonoBehaviour
 }
 
 
-// CigarWrapperState
 namespace TobaccoPotAndCigar.Runtime
 {
     using UnityEngine;
@@ -1716,7 +1701,6 @@ public sealed class CigarWrapperState : MonoBehaviour
             TobaccoRecipe recipe;
             if (!TryGetRecipe(out recipe) || !recipe.TryAdd(tobacco)) return false;
             if(wrapperVisual==null || wrapperVisual.gameObject!=gameObject) wrapperVisual=GetComponent<CigarWrapperVisual>();
-            // Presentation must be usable before committing the recipe or consuming tobacco.
             if(wrapperVisual==null)
             {
                 if(!invalidLogged) RuntimeDiagnostics.Error("Cigar Wrapper "+GetInstanceID()+" has no visual component; tobacco was not consumed.");
@@ -1766,12 +1750,10 @@ public sealed class CigarWrapperState : MonoBehaviour
 }
 
 
-// CigarWrapperVisual
 namespace TobaccoPotAndCigar.Runtime
 {
     using System;
     using UnityEngine;
-/// <summary>Wrapper filling presentation driven by the persisted ordered recipe.</summary>
     public sealed class CigarWrapperVisual : MonoBehaviour
     {
         [Serializable]
@@ -1811,7 +1793,6 @@ namespace TobaccoPotAndCigar.Runtime
         private void BindConfiguration()
         {
             if(bundledData!=null) Configure(bundledFillings,bundledData.tobaccoColors);
-            // Never retain a renderer/filter from a different wrapper instance.
             meshFilter=GetComponent<MeshFilter>();
             meshRenderer=GetComponent<MeshRenderer>();
         }
@@ -1876,16 +1857,11 @@ namespace TobaccoPotAndCigar.Runtime
 }
 
 
-// CigarWrapperVisualData
 namespace TobaccoPotAndCigar.Runtime
 {
     using UnityEngine;
-/// <summary>Explicit bundle asset used to bind wrapper presentation before registration.</summary>
     public sealed class CigarWrapperVisualData : ScriptableObject
     {
-        // Native Unity references survive loading this assembly through BepInEx.
-        // Do not serialize the nested managed Filling[] here: the game can load
-        // the ScriptableObject without restoring that array.
         public Mesh[] meshes;
         public Material[] emptyMaterials;
         public Material fillerMaterial;

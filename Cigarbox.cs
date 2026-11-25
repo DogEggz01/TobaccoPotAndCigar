@@ -1,6 +1,3 @@
-// Cigar box: its state, lid and seats.
-
-// Regional boxes use the authored hinge and slots; contents keep their native identities.
 namespace TobaccoPotAndCigar.Runtime
 {
     using UnityEngine;
@@ -35,7 +32,6 @@ namespace TobaccoPotAndCigar.Runtime
             moving = false; if (lid == null || dt <= 0) return;
             float target = wantsOpen ? 180 : 0;
             float end = Mathf.MoveTowards(angle, target, 225 * Mathf.Min(dt, .05f));
-            // Half-degree swept intervals, with a clearance skin larger than the arc step.
             while (Mathf.Abs(end - angle) > .0001f)
             {
                 float next = Mathf.MoveTowards(angle, end, .5f);
@@ -51,7 +47,6 @@ namespace TobaccoPotAndCigar.Runtime
             Vector3 centre = lid.position + rotation * Vector3.Scale(lidBounds.center, scale);
             Vector3 half = Vector3.Scale(lidBounds.extents, scale) + Vector3.one * .0016f;
             if (!VolumeClear(centre, half, rotation, false)) return false;
-            // Sailwind keeps boat collision geometry in a separate physics frame.
             Transform boat = Item.currentActualBoat, walk = Item.currentWalkCol;
             if (boat != null && walk != null)
             {
@@ -63,9 +58,6 @@ namespace TobaccoPotAndCigar.Runtime
         }
         private bool VolumeClear(Vector3 centre, Vector3 half, Quaternion rotation, bool boatPhysics)
         {
-            // BoatCapsule is the broad exterior boat collision envelope, not its
-            // deck/walls. It surrounds open interior space and would block both
-            // directions. Keep the detailed world and walk-frame geometry.
             const int obstacleLayers = ~((1 << 13) | (1 << 26));
             int count = Physics.OverlapBoxNonAlloc(centre, half, obstacles, rotation, obstacleLayers, QueryTriggerInteraction.Collide);
             if (count == obstacles.Length) return false;
@@ -73,9 +65,6 @@ namespace TobaccoPotAndCigar.Runtime
             {
                 Collider c = obstacles[i];
                 if (c == null || c.transform.IsChildOf(transform)) continue;
-                // Some native boats (including the large dhow) keep their root
-                // capsule on another layer. Match its role without excluding
-                // whole layers that can also contain genuine surfaces.
                 if (c is CapsuleCollider && c.GetComponent<BoatRefs>() != null) continue;
                 var stored = c.GetComponentInParent<SecuredDisplayItem>();
                 if (stored != null && stored.Owner == this) continue;
@@ -101,8 +90,6 @@ namespace TobaccoPotAndCigar.Runtime
         {
             slot = -1; point = transform.position;
             if (angle <= 1) { previousAim = -1; return false; }
-            // Full-length, disjoint slot strips share the gaps. Names and highlights still
-            // refer to the actual cigar; removing it never falls through to picking up the box.
             float closest = 1.8f; int best = -1;
             if (previousAim >= 0 && previousAim < seats.Length)
             {
@@ -131,7 +118,6 @@ namespace TobaccoPotAndCigar.Runtime
             float hit;
             if (interior.IntersectRay(rootRay, out hit) && hit <= 1.8f && Vector3.Dot(ray.direction, transform.up) < 0 && Exposed(ray, hit, false))
             { point = ray.GetPoint(hit); return true; }
-            // An empty lid holder panel also blocks F picking up the entire open box.
             Ray lidRay = new Ray(lid.InverseTransformPoint(ray.origin), lid.InverseTransformDirection(ray.direction));
             if (baseSeats < Capacity && lidBounds.IntersectRay(lidRay, out hit) && hit <= 1.8f && Vector3.Dot(ray.direction, lid.up) > 0)
             { point = ray.GetPoint(hit); return true; }
@@ -147,8 +133,6 @@ namespace TobaccoPotAndCigar.Runtime
         }
         public override int NearestEmpty(ShipItem held, Vector3 point)
         {
-            // Distance to the centreline, not just the burning tip, gives the same nearest
-            // seat along the whole cigar and on the raised lid.
             EnsureContents(); int best = -1; float distance = float.MaxValue;
             for (int i = 0; i < Capacity; i++)
             {

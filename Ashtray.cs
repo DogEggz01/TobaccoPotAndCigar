@@ -1,16 +1,11 @@
-// Ashtray: its ash pile, the tray's state, and a vanilla pipe resting on a tray.
-
-// AshPileVisual
 namespace TobaccoPotAndCigar.Runtime
 {
     using System.Collections.Generic;
     using UnityEngine;
-/// <summary>Deposited ash follows the shared D-shaped basin, including its sloping floor.</summary>
     public sealed class AshPileVisual : MonoBehaviour
     {
         private Mesh ownedMesh;
         private float lastFill = -1;
-        // Optional sampled basin floor for shapes such as the thicker glass tray.
         [SerializeField] private float[] floorHeights;
         public const int FloorGridSize = 65;
 
@@ -62,7 +57,6 @@ namespace TobaccoPotAndCigar.Runtime
                 float dx = Mathf.Cos(angle), dz = Mathf.Sin(angle);
                 float reach = -centre * dx + Mathf.Sqrt(outerRadius * outerRadius - centre * centre * dz * dz);
                 if (dx < 0) reach = Mathf.Min(reach, (divider - centre) / dx);
-                // Broad irregularity stays inside both the divider and curved wall.
                 reach *= .982f + .012f * Mathf.Sin(i * 1.7f);
                 float t = (ring + 1f) / rings;
                 float radius = reach * spread * t;
@@ -93,7 +87,6 @@ namespace TobaccoPotAndCigar.Runtime
         private static void SetVertex(Vector3[] vertices, Vector2[] uv, int i, int half, float x, float z, float mound, float[] floorHeights)
         {
             float radius = Mathf.Sqrt(x * x + z * z);
-            // Same lathed floor profile as the Blender basin cutter (all ten styles).
             float floor = radius <= .075f ? .013f : radius <= .098f
                 ? Mathf.Lerp(.013f, .016f, (radius - .075f) / .023f)
                 : Mathf.Lerp(.016f, .023f, (radius - .098f) / .012f);
@@ -110,18 +103,15 @@ namespace TobaccoPotAndCigar.Runtime
             Vector3 position = new Vector3(cos * x - sin * z, floor, -sin * x - cos * z);
             vertices[i] = position + Vector3.up * (.00065f + mound);
             vertices[i + half] = position + Vector3.up * .00035f;
-            // Keep every sample within the cigar-ash atlas island, away from black padding.
             uv[i] = uv[i + half] = new Vector2(.225f + (x - .05f) * 1.3f, .21f + z * 1.3f);
         }
     }
 }
 
 
-// AshtrayState
 namespace TobaccoPotAndCigar.Runtime
 {
     using UnityEngine;
-/// <summary>One cigar and one native pipe, with independent authored rests.</summary>
     public sealed class AshtrayState : MonoBehaviour
     {
         [SerializeField] private Transform[] rests;
@@ -144,7 +134,6 @@ namespace TobaccoPotAndCigar.Runtime
 
         public void SyncFromSavedState()
         {
-            // Ashtrays use native health as a 0-100 ash capacity, not durability.
             Item.health = float.IsNaN(Item.health) || float.IsInfinity(Item.health) ? 0 : Mathf.Clamp(Item.health, 0, 100);
             if (ashPile == null) return;
             var shapedPile = ashPile.GetComponent<AshPileVisual>();
@@ -226,8 +215,6 @@ namespace TobaccoPotAndCigar.Runtime
         {
             CancelEmptying();
             ReleaseOccupant(true);
-            // Models and sockets are authored bowl-forward (+Z). Reset scrolling
-            // and prior emptying tilt each pickup; native GoPointer owns the pose.
             Item.heldRotationOffset = 0;
             if (Item.held != null) transform.rotation = Item.held.transform.rotation;
         }
@@ -245,7 +232,6 @@ namespace TobaccoPotAndCigar.Runtime
         public bool TrySeatAt(CigarRuntimeState cigar, Vector3 hitPoint)
         {
             if (rests == null || rests.Length != 2 || rests[0] == null || rests[1] == null) return false;
-            // Sockets mark the burning tip, across the basin from the physical groove.
             Vector3 grooveOffset = new Vector3(0, -.120f, .00058f);
             Vector3 groove0 = rests[0].TransformPoint(grooveOffset);
             Vector3 groove1 = rests[1].TransformPoint(grooveOffset);
@@ -279,7 +265,6 @@ namespace TobaccoPotAndCigar.Runtime
                 if (body != null)
                 {
                     cigar.Pipe.ResetRigidbody();
-                    // Boat physics runs on a separate collision copy, not at the visible pose.
                     if (cigar.Pipe.currentActualBoat != null && cigar.Pipe.currentWalkCol != null)
                         cigar.Pipe.itemRigidbodyC.ForceRigidbodyToWalkCol();
                     body.isKinematic = false;
@@ -300,12 +285,10 @@ namespace TobaccoPotAndCigar.Runtime
 }
 
 
-// RestingPipeState
 namespace TobaccoPotAndCigar.Runtime
 {
     using System.Collections;
     using UnityEngine;
-/// <summary>Native pipe seating, without replacing tobacco, smoking or save fields.</summary>
     public sealed class RestingPipeState : MonoBehaviour
     {
         private ShipItemPipe pipe;
@@ -359,7 +342,6 @@ namespace TobaccoPotAndCigar.Runtime
                 if (body != null)
                 {
                     Pipe.ResetRigidbody();
-                    // ResetRigidbody writes the visible world pose; restore boat physics space.
                     if (Pipe.currentActualBoat != null && Pipe.currentWalkCol != null)
                         Pipe.itemRigidbodyC.ForceRigidbodyToWalkCol();
                     body.isKinematic = false;
@@ -387,8 +369,6 @@ namespace TobaccoPotAndCigar.Runtime
         public void WriteSave(SavePrefabData data)
         {
             int id = IsResting ? tray.GetComponent<SaveablePrefab>().instanceId : savedTrayId;
-            // Native pipes leave these extra fields unused. Health and amount
-            // retain the native tobacco quantity/type. Split IDs for float precision.
             data.extraValue1 = id & 65535; data.extraValue2 = (id >> 16) & 32767;
             data.extraValue4 = 120;
         }

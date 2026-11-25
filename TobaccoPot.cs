@@ -1,12 +1,7 @@
-// Tobacco pot: rain patches, growth and rain-water numbers, the pot's state and the plant's visual.
-
-// PotRainPatches
 namespace TobaccoPotAndCigar.Patches
 {
     using HarmonyLib;
     using TobaccoPotAndCigar.Runtime;
-// GoPointer clears held state after ShipItem.OnDrop. Hook here so the
-    // exposure snapshot is taken once at the completed placement.
     [HarmonyPatch(typeof(GoPointer), "DropItem")]
     internal static class PotRainPlacementPatch
     {
@@ -48,7 +43,6 @@ namespace TobaccoPotAndCigar.Patches
 }
 
 
-// GrowthMath
 namespace TobaccoPotAndCigar.Runtime
 {
     using UnityEngine;
@@ -102,7 +96,6 @@ public static class GrowthMath
 }
 
 
-// RainWaterMath
 namespace TobaccoPotAndCigar.Runtime
 {
     using UnityEngine;
@@ -121,7 +114,6 @@ public static class RainWaterMath
 }
 
 
-// TobaccoPlantPotState
 namespace TobaccoPotAndCigar.Runtime
 {
     using System.Collections;
@@ -135,7 +127,6 @@ public sealed class TobaccoPlantPotState : MonoBehaviour
         private Coroutine growthRoutine;
         private bool harvesting;
         private SaveablePrefab saveable;
-        // Saved in the pot's otherwise unused extraValue0: 0 unknown, 1 sheltered, 2 exposed.
         private int rainExposure;
         private int displayedWater = -1;
 
@@ -166,19 +157,12 @@ public sealed class TobaccoPlantPotState : MonoBehaviour
             Bounds bounds = potMesh.sharedMesh.bounds;
             Vector3 opening = transform.TransformPoint(new Vector3(bounds.center.x,
                 bounds.max.y + .01f, bounds.center.z));
-            // One exposure check per placement. Cast down from the sky to detect the
-            // upward-facing triangles of thin roofs without changing global backface settings.
-            // Exclude water/UI, the remote walking copy, player/boat capsules,
-            // depth/invisible helpers, sail checkers, wind shadows and crate items.
             const int excluded = (1 << 2) | (1 << 4) | (1 << 5) | (1 << 8) |
                 (1 << 11) | (1 << 13) | (1 << 14) | (1 << 16) | (1 << 21) |
                 (1 << 22) | (1 << 23) | (1 << 24) | (1 << 26) | (1 << 27);
             Physics.SyncTransforms();
             rainExposure = HasRainCover(opening, Vector3.up, ~excluded, null) ? 1 : 2;
             if (rainExposure == 1) return;
-            // Most native cabin roofs only collide on the separate walking copy.
-            // Map the SAME world vertical ray into that boat's collision space;
-            // never treat the remote copy as a roof over unrelated world items.
             Transform boat = item.currentActualBoat;
             Transform walk = item.currentWalkCol;
             if (boat == null || walk == null) return;
@@ -353,8 +337,6 @@ public sealed class TobaccoPlantPotState : MonoBehaviour
             if (IsPlacedInWorld() && !GameState.currentlyLoading && !GameState.justStarted &&
                 !GameState.loadingBoatLocalItems && GameState.loadingScenes == 0)
             {
-                // Newly spawned/old-save pots lack a snapshot. New saves retain it;
-                // neither weather changes nor movement causes a repeated query.
                 if (rainExposure == 0) CheckRainExposureOnPlacement();
                 if (IsRainExposed)
                     item.health = RainWaterMath.Collect(item.health, GameState.rainIntensity, gameHours);
@@ -380,7 +362,6 @@ public sealed class TobaccoPlantPotState : MonoBehaviour
 }
 
 
-// TobaccoPlantVisual
 namespace TobaccoPotAndCigar.Runtime
 {
     using UnityEngine;

@@ -1,6 +1,3 @@
-// Tobacco leaves: knife patches, the fresh and dried leaf states and visuals, drying on the rack, and the migration of saved ID 613 leaves.
-
-// KnifePatches
 namespace TobaccoPotAndCigar.Patches
 {
     using HarmonyLib;
@@ -87,12 +84,10 @@ namespace TobaccoPotAndCigar.Patches
 }
 
 
-// LeafCurlMesh
 namespace TobaccoPotAndCigar.Runtime
 {
     using System;
     using UnityEngine;
-/// <summary>Imported vertex correspondence is baked by the authoring builder.</summary>
     [Serializable]
     public sealed class LeafCurlMesh
     {
@@ -125,7 +120,6 @@ namespace TobaccoPotAndCigar.Runtime
                 instance.MarkDynamic();
                 filter.sharedMesh = instance;
             }
-            // A completed legacy conversion can replace the root mesh before cleanup.
             if (filter.sharedMesh != instance)
                 return;
             for (int i = 0; i < workingVertices.Length; i++)
@@ -154,7 +148,6 @@ namespace TobaccoPotAndCigar.Runtime
 }
 
 
-// LeafStateRules
 namespace TobaccoPotAndCigar.Runtime
 {
     using System;
@@ -189,11 +182,9 @@ public static class LeafStateRules
 }
 
 
-// LegacyLeafMigration
 namespace TobaccoPotAndCigar.Runtime
 {
 
-/// <summary>Transforms loaded records before native spawning/caching; never writes save files.</summary>
     public static class LegacyLeafMigration
     {
         public static bool TryMigrate(SavePrefabData data)
@@ -216,10 +207,7 @@ namespace TobaccoPotAndCigar.Runtime
             else
             {
                 data.prefabIndex = RuntimeConstants.CigarWrapperPrefabIndex;
-                // Legacy leaves use Z-up geometry; wrappers use Y-up. Preserve the
-                // visible resting plane while native loading restores the same owner/position.
                 data.rotation = (UnityEngine.Quaternion)data.rotation * new UnityEngine.Quaternion(.70710678f, 0, 0, .70710678f);
-                // Preserve the precise old recipe encoding, count and all ownership fields.
             }
             return true;
         }
@@ -238,7 +226,6 @@ namespace TobaccoPotAndCigar.Runtime
 }
 
 
-// TobaccoDryingChain
 namespace TobaccoPotAndCigar.Runtime
 {
 
@@ -273,11 +260,9 @@ public static class TobaccoDryingChain
 }
 
 
-// DriedTobaccoLeafState
 namespace TobaccoPotAndCigar.Runtime
 {
     using UnityEngine;
-/// <summary>ID 613 recovery asset. Valid saved records migrate before native loading.</summary>
     public sealed class DriedTobaccoLeafState : MonoBehaviour
     {
         [SerializeField] private DriedTobaccoLeafVisual leafVisual;
@@ -312,7 +297,6 @@ namespace TobaccoPotAndCigar.Runtime
 }
 
 
-// DriedTobaccoLeafVisual
 namespace TobaccoPotAndCigar.Runtime
 {
     using UnityEngine;
@@ -351,7 +335,6 @@ public sealed class DriedTobaccoLeafVisual : MonoBehaviour
 }
 
 
-// FreshTobaccoLeafState
 namespace TobaccoPotAndCigar.Runtime
 {
     using UnityEngine;
@@ -384,7 +367,6 @@ public sealed class FreshTobaccoLeafState : MonoBehaviour
             }
             finally
             {
-                // Consumed sources are disabled immediately, before deferred Unity destruction.
                 if (this != null && gameObject.activeSelf) crafting = false;
                 if (heldLeaf != null && heldLeaf.gameObject.activeSelf) heldLeaf.crafting = false;
             }
@@ -430,7 +412,6 @@ public sealed class FreshTobaccoLeafState : MonoBehaviour
 }
 
 
-// FreshTobaccoLeafVisual
 namespace TobaccoPotAndCigar.Runtime
 {
     using UnityEngine;
@@ -479,8 +460,6 @@ public sealed class FreshTobaccoLeafVisual : MonoBehaviour
             ReleaseCurlMeshes();
         }
 
-        // Also used by editor preview tools, whose non-ExecuteInEditMode components
-        // do not receive Unity's runtime destruction callbacks.
         public void ReleaseCurlMeshes()
         {
             displayedHours = float.NaN;
@@ -531,7 +510,6 @@ public sealed class FreshTobaccoLeafVisual : MonoBehaviour
             }
 
             displayedHours = clampedHours;
-            // Hide veins first so their curl meshes are skipped.
             int hiddenVeins = GetHiddenVeinCount(
                 clampedHours,
                 LateralVeinCount);
@@ -695,7 +673,6 @@ public sealed class FreshTobaccoLeafVisual : MonoBehaviour
 }
 
 
-// RackOnlyDrying
 namespace TobaccoPotAndCigar.Runtime
 {
     using System.Collections;
@@ -791,7 +768,6 @@ public sealed class RackOnlyDrying : MonoBehaviour
 
         private void RegisterRack(Collider other)
         {
-            // Unity can deliver trigger callbacks to disabled behaviours.
             if (!enabled) return;
             DryingRackCol rack = FindRack(other);
             if (rack != null && racks.Add(rack) && dryingRoutine == null)
@@ -820,7 +796,6 @@ public sealed class RackOnlyDrying : MonoBehaviour
                         item.health + Time.deltaTime * clock.timescale);
                     if (freshState != null)
                     {
-                        // Rebuild the leaf mesh at most every 0.1 s, plus each new day and on completion.
                         int day = Mathf.FloorToInt(item.health / FreshTobaccoLeafVisual.GameHoursPerDay);
                         if (Time.unscaledTime >= nextVisualTime || day != visualDay ||
                             item.health >= requiredGameHours)
@@ -994,7 +969,6 @@ public sealed class RackOnlyDrying : MonoBehaviour
             target.inventoryScale = source.inventoryScale;
             target.inventoryRotation = source.inventoryRotation;
             target.inventoryRotationX = source.inventoryRotationX;
-            target.floaterHeight = source.floaterHeight;
             target.wallAttachment = source.wallAttachment;
             target.delayLook = source.delayLook;
             target.big = source.big;
@@ -1010,7 +984,6 @@ public sealed class RackOnlyDrying : MonoBehaviour
                 return;
             StopCoroutine(dryingRoutine);
             dryingRoutine = null;
-            // Show the exact progress the throttled updates may have skipped.
             if (freshState != null)
                 freshState.SyncDryingVisual();
             nextVisualTime = 0f;
